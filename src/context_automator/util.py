@@ -6,11 +6,38 @@ Faz F: CLI ve MCP'de aynı mantık iki yerde duruyordu. Buraya taşındı.
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+import os
+import logging
+from logging.handlers import RotatingFileHandler
 
 from context_automator.capture.git_state import capture_git_state
 from context_automator.adapters.vscode_family import get_ide_configs, read_editor_state
 from context_automator.db.schema import ensure_schema, get_connection, default_db_path
 
+# Proje kök dizininde 'logs' klasörü oluştur
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+# src/context_automator/util.py içindeki ilgili kısmı şu şekilde değiştir:
+LOG_DIR = r"C:\Users\bdogan\Desktop\context-automator-clean\logs"
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_FILE = os.path.join(LOG_DIR, 'app.log')
+
+def setup_logger():
+    log = logging.getLogger("ContextAutomator")
+    log.setLevel(logging.DEBUG)
+
+    if not log.handlers:
+        file_handler = RotatingFileHandler(LOG_FILE, maxBytes=5*1024*1024, backupCount=3, encoding='utf-8')
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s')
+        file_handler.setFormatter(formatter)
+        log.addHandler(file_handler)
+        
+        # PRO ADIM: Logları anında diske yazmaya zorla (flush)
+        file_handler.doRollover = lambda: None 
+        
+    return log
+
+# Tüm projede kullanılacak global logger objesi
+logger = setup_logger() 
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()

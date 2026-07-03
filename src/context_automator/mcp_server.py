@@ -14,7 +14,6 @@ RESOURCES (Faz 5 - dinamik bağlam):
 Başlatma:
   .venv/Scripts/python.exe -m context_automator.mcp_server
 """
-
 import json
 import os
 import subprocess
@@ -26,7 +25,7 @@ from mcp.server.stdio import stdio_server
 from mcp import types
 
 from context_automator.util import (
-    build_snapshot, upsert_context, get_db, log_event, now_iso,
+    build_snapshot, upsert_context, get_db, log_event, now_iso, logger
 )
 from context_automator.capture.git_state import capture_git_state
 from context_automator.capture.session_logger import (
@@ -47,22 +46,36 @@ def _ok(data: dict) -> list[types.TextContent]:
 
 
 def _err(msg: str, code: str = "error") -> list[types.TextContent]:
+    logger.error(f"Sistem Hatası [{code}]: {msg}")
     return [types.TextContent(type="text",
                                text=json.dumps({"status": code, "error": msg},
                                                ensure_ascii=False))]
 
 
 def _run(cmd: list[str], cwd: Path) -> str:
-    try:
-        if not cwd.exists():
-            return f"(dizin bulunamadı: {cwd})"
-        r = subprocess.run(cmd, cwd=cwd, capture_output=True,
-                           text=True, timeout=5)
-        return r.stdout.strip()
-    except subprocess.TimeoutExpired:
-        return "(git komutu zaman aşımı)"
-    except Exception:
-        return ""
+    retries = 2  # Toplam 2 kez dene
+    for i in range(retries):
+        try:
+            if not cwd.exists():
+                return f"Dizin bulunamadı: {cwd}"
+            
+            # Subprocess çalıştır
+            r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=10)
+            
+            if r.returncode == 0:
+                return r.stdout.strip()
+            else:
+                logger.warning(f"Git hatası ({' '.join(cmd)}): {r.stderr}")
+                return r.stderr
+                
+        except subprocess.TimeoutExpired:
+            logger.warning(f"Zaman aşımı (Deneme {i+1}): {' '.join(cmd)}")
+            time.sleep(1) # Git kilidinin açılması için 1 saniye bekle
+        except Exception as e:
+            logger.error(f"Beklenmedik hata: {str(e)}", exc_info=True)
+            return ""
+            
+    return "(git komutu başarısız - retry tükendi)"
 
 
 # ---------------------------------------------------------------------------
@@ -71,6 +84,7 @@ def _run(cmd: list[str], cwd: Path) -> str:
 
 @app.list_resources()
 async def list_resources() -> list[types.Resource]:
+    logger.info("list_resources tetiklendi.")
     resources = [
         types.Resource(
             uri="context://current-project-spec",
@@ -98,6 +112,8 @@ async def list_resources() -> list[types.Resource]:
                 description=f"'{row['name']}' projesinin önceki seans özeti ve git bilgisi.",
                 mimeType="text/plain",
             ))
+    except Exception as e:
+        logger.error(f"Resource listeleme veritabanı hatası: {str(e)}", exc_info=True)
     finally:
         conn.close()
 
@@ -108,6 +124,7 @@ async def list_resources() -> list[types.Resource]:
 async def read_resource(uri: str) -> str:
     global _current_project_dir
     cwd = _current_project_dir or Path.cwd()
+    logger.info(f"read_resource tetiklendi: {uri}")
 
     # context://current-project-spec
     if uri == "context://current-project-spec":
@@ -134,8 +151,8 @@ async def read_resource(uri: str) -> str:
                 if len(lines) > 80:
                     lines.append("  ... (daha fazlası var)")
                     break
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Dizin yapısı okunurken hata: {str(e)}", exc_info=True)
 
         return "\n".join(lines)
 
@@ -162,16 +179,21 @@ async def read_resource(uri: str) -> str:
             row = conn.execute(
                 "SELECT * FROM contexts WHERE name = ?", (ctx_name,)
             ).fetchone()
+        except Exception as e:
+            logger.error(f"Seans geçmişi okunurken DB hatası: {str(e)}", exc_info=True)
+            row = None
         finally:
             conn.close()
 
         if not row:
+            logger.warning(f"Seans geçmişi okunamadı: '{ctx_name}' bulunamadı.")
             return f"'{ctx_name}' adında kayıtlı context bulunamadı."
 
         row = dict(row)
         live = capture_git_state(Path(row["working_dir"]))
         return build_welcome_message(row, live.branch, live.dirty)
 
+    logger.warning(f"Bilinmeyen resource URI istendi: {uri}")
     return f"Bilinmeyen resource URI: {uri}"
 
 
@@ -281,6 +303,8 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
     # ── save_context ─────────────────────────────────────────────────────────
     if name == "save_context":
         ctx_name = arguments.get("name", "").strip()
+        logger.info(f"save_context tetiklendi: Hedef -> {ctx_name}")
+        
         if not ctx_name:
             return _err("'name' boş olamaz.", "validation_error")
 
@@ -290,6 +314,7 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
         record, warnings = build_snapshot(ctx_name, ide_type)
 
         if dry_run:
+            logger.info(f"save_context dry_run tamamlandı: {ctx_name}")
             return _ok({"status": "dry_run", "would_save": record,
                          "warnings": warnings})
 
@@ -302,7 +327,9 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             # FAZ 7: AI seans özeti (ANTHROPIC_API_KEY varsa)
             working_dir = Path(record["working_dir"])
             summary = save_session_summary(conn, ctx_id, working_dir)
+            logger.info(f"Başarıyla kaydedildi: {ctx_name}")
         except Exception as e:
+            logger.error(f"save_context DB yazma hatası: {str(e)}", exc_info=True)
             return _err(f"DB yazma hatası: {e}")
         finally:
             conn.close()
@@ -330,6 +357,7 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
         ctx_name     = arguments.get("name", "").strip()
         dry_run      = arguments.get("dry_run", False)
         wait_seconds = float(arguments.get("wait_seconds", 2.0))
+        logger.info(f"switch_context tetiklendi: Hedef proje -> {ctx_name}")
 
         conn = get_db()
         try:
@@ -337,6 +365,7 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
                 "SELECT * FROM contexts WHERE name = ?", (ctx_name,)
             ).fetchone()
             if row is None:
+                logger.warning(f"switch_context başarısız: '{ctx_name}' bulunamadı.")
                 return _err(f"'{ctx_name}' bulunamadı.", "not_found")
 
             row = dict(row)
@@ -355,6 +384,7 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             welcome = build_welcome_message(row, live_git.branch, live_git.dirty)
 
             if dry_run:
+                logger.info(f"switch_context dry_run tamamlandı: {ctx_name}")
                 return _ok({
                     "status": "dry_run",
                     "welcome_brief": welcome,
@@ -371,6 +401,7 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             if not launch.launched:
                 log_event(conn, row["id"], "switch_error", {"error": launch.error})
                 conn.commit()
+                logger.error(f"IDE başlatılamadı ({row['ide_type']}): {launch.error}")
                 return _err(f"IDE başlatılamadı: {launch.error}")
 
             reopen_results: list[dict] = []
@@ -379,6 +410,7 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
                 results = reopen_files(row["ide_type"], positions)
                 reopen_results = [{"file": r.file, "ok": r.ok,
                                     "error": r.error} for r in results]
+                logger.info(f"{len(reopen_results)} dosya yeniden açıldı.")
 
             conn.execute(
                 "UPDATE contexts SET last_opened_at=? WHERE id=?",
@@ -389,8 +421,10 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
 
             # Aktif projeyi güncelle (Resources için)
             _current_project_dir = working_dir
+            logger.info(f"switch_context başarıyla tamamlandı: {ctx_name}")
 
         except Exception as e:
+            logger.error(f"switch_context sırasında beklenmeyen hata: {str(e)}", exc_info=True)
             return _err(f"switch hatası: {e}")
         finally:
             conn.close()
@@ -406,12 +440,16 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
 
     # ── list_contexts ─────────────────────────────────────────────────────────
     elif name == "list_contexts":
+        logger.info("list_contexts tetiklendi.")
         conn = get_db()
         try:
             rows = conn.execute(
                 "SELECT name, working_dir, ide_type, git_branch, "
                 "updated_at, session_summary FROM contexts ORDER BY updated_at DESC"
             ).fetchall()
+        except Exception as e:
+            logger.error(f"list_contexts DB okuma hatası: {str(e)}", exc_info=True)
+            return _err(f"Listeleme hatası: {e}")
         finally:
             conn.close()
 
@@ -429,15 +467,20 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
     # ── preview_context ───────────────────────────────────────────────────────
     elif name == "preview_context":
         ctx_name = arguments.get("name", "").strip()
+        logger.info(f"preview_context tetiklendi: {ctx_name}")
         conn = get_db()
         try:
             row = conn.execute(
                 "SELECT * FROM contexts WHERE name = ?", (ctx_name,)
             ).fetchone()
+        except Exception as e:
+            logger.error(f"preview_context DB okuma hatası: {str(e)}", exc_info=True)
+            return _err(f"Okuma hatası: {e}")
         finally:
             conn.close()
 
         if row is None:
+            logger.warning(f"preview_context başarısız: '{ctx_name}' bulunamadı.")
             return _err(f"'{ctx_name}' bulunamadı.", "not_found")
 
         row = dict(row)
@@ -445,6 +488,7 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
         warnings: list[str] = []
         if not live.available:
             warnings.append(f"git okunamadı: {live.error}")
+            logger.warning(f"preview_context Git durumu okunamadı: {live.error}")
         else:
             if live.branch != row["git_branch"]:
                 warnings.append(
@@ -467,16 +511,22 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
     # ── delete_context ────────────────────────────────────────────────────────
     elif name == "delete_context":
         ctx_name = arguments.get("name", "").strip()
+        logger.info(f"delete_context tetiklendi: {ctx_name}")
         conn = get_db()
         try:
             row = conn.execute(
                 "SELECT id FROM contexts WHERE name=?", (ctx_name,)
             ).fetchone()
             if row is None:
+                logger.warning(f"delete_context başarısız: '{ctx_name}' bulunamadı.")
                 return _err(f"'{ctx_name}' bulunamadı.", "not_found")
             conn.execute("DELETE FROM context_events WHERE context_id=?", (row["id"],))
             conn.execute("DELETE FROM contexts WHERE id=?", (row["id"],))
             conn.commit()
+            logger.info(f"Başarıyla silindi: {ctx_name}")
+        except Exception as e:
+            logger.error(f"delete_context silme hatası: {str(e)}", exc_info=True)
+            return _err(f"Silme hatası: {e}")
         finally:
             conn.close()
         return _ok({"status": "deleted", "name": ctx_name})
@@ -485,9 +535,12 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
     elif name == "resolve_git_state":
         action   = arguments.get("action", "status")
         ctx_name = arguments.get("context_name", "").strip()
+        logger.info(f"resolve_git_state tetiklendi: Action -> {action}, Proje -> {ctx_name}")
 
-        # Çalışma dizini: context'ten al ya da cwd kullan
-        cwd = Path.cwd()
+        # Çalışma dizini: Sabit kök dizine zorluyoruz
+        cwd = Path(r"C:\Users\bdogan\Desktop\context-automator-clean")
+        logger.info(f"Git işlemi için kök dizin: {cwd}")
+
         if ctx_name:
             conn = get_db()
             try:
@@ -496,6 +549,8 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
                 ).fetchone()
                 if row:
                     cwd = Path(row["working_dir"])
+            except Exception as e:
+                logger.error(f"resolve_git_state çalışma dizini bulma hatası: {str(e)}", exc_info=True)
             finally:
                 conn.close()
 
@@ -519,6 +574,7 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
         elif action == "stash":
             out = _run(["git", "stash", "push", "-m",
                         f"context-automator auto-stash {now_iso()}"], cwd)
+            logger.info(f"Git stash uygulandı: {cwd}")
             return _ok({
                 "status": "ok",
                 "action": "stash",
@@ -527,19 +583,25 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             })
 
         elif action == "commit_wip":
-            _run(["git", "add", "-A"], cwd)
+            # Önce ekleyebiliyor muyuz kontrol edelim
+            add_out = _run(["git", "add", "-u"], cwd)
+            logger.info(f"Git add sonucu: {add_out}") # Neyi ekledik görelim
+            
             ts = now_iso()[:16].replace("T", " ")
-            out = _run(["git", "commit", "-m", f"WIP: auto-save {ts}"], cwd)
+            commit_msg = f"WIP: auto-save {ts}"
+            out = _run(["git", "commit", "-m", commit_msg], cwd)
+            
+            logger.info(f"Git commit sonucu: {out}")
             return _ok({
                 "status": "ok",
-                "action": "commit_wip",
                 "output": out,
-                "message": "WIP commit oluşturuldu.",
+                "message": f"Commit denendi: {commit_msg}"
             })
 
         elif action == "discard":
             out1 = _run(["git", "checkout", "--", "."], cwd)
             out2 = _run(["git", "clean", "-fd"], cwd)
+            logger.warning(f"Git discard uygulandı (GERİ ALINAMAZ): {cwd}")
             return _ok({
                 "status": "ok",
                 "action": "discard",
@@ -547,8 +609,10 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
                 "warning": "Tüm kaydedilmemiş değişiklikler silindi. Bu işlem geri alınamaz.",
             })
 
+        logger.warning(f"Geçersiz git action: {action}")
         return _err(f"Geçersiz action: {action}")
 
+    logger.warning(f"Bilinmeyen tool çağrıldı: {name}")
     return _err(f"Bilinmeyen tool: {name}", "unknown_tool")
 
 
@@ -562,6 +626,8 @@ async def _serve() -> None:
 
 
 def main() -> None:
+    # Sunucu daha başlamadan loga yazıyoruz
+    logger.info("--- MCP SUNUCUSU BAŞLATILIYOR ---")
     import asyncio
     asyncio.run(_serve())
 
