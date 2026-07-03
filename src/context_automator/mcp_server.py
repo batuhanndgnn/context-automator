@@ -60,7 +60,7 @@ def _run(cmd: list[str], cwd: Path) -> str:
                 return f"Dizin bulunamadı: {cwd}"
             
             # Subprocess çalıştır
-            r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=10)
+            r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL)
             
             if r.returncode == 0:
                 return r.stdout.strip()

@@ -139,3 +139,4 @@ def upsert_context(conn, record: dict) -> int:
     ).fetchone()
     conn.commit()
     return row["id"]
+# otonom ajan testi
