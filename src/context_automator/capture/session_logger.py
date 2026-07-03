@@ -17,7 +17,8 @@ import subprocess
 from pathlib import Path
 
 import httpx
-
+from dotenv import load_dotenv
+load_dotenv()
 
 def _run(cmd: list[str], cwd: Path, timeout: int = 10) -> str:
     try:
@@ -56,7 +57,7 @@ def generate_session_summary(session_data: dict) -> str | None:
     """Claude API'ye session verisini gönderir, özet döner.
 
     ANTHROPIC_API_KEY env var yoksa None döner (sessizce atlanır).
-    Model: claude-haiku-4-5 — en hızlı, session summary için ideal.
+    Model: "claude-3-haiku-20240307" — en hızlı, session summary için ideal.
     """
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
@@ -89,7 +90,7 @@ Değişiklik yoksa "Bu seansta commit edilmiş değişiklik bulunamadı." yaz.""
                 "content-type": "application/json",
             },
             json={
-                "model": "claude-haiku-4-5",
+                "model": "claude-3-haiku-20240307",
                 "max_tokens": 300,
                 "messages": [{"role": "user", "content": prompt}],
             },
