@@ -1,0 +1,25 @@
+# Proje verisi - kişisel, repo'ya girmiyor
+data/
+data/contexts.db
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# IDE
+.vscode/settings.json
+.cursor/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Geçici
+*.tmp
+*.log
