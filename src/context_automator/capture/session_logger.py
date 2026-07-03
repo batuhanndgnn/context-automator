@@ -15,6 +15,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
+from venv import logger
 
 import httpx
 from dotenv import load_dotenv
@@ -99,9 +100,9 @@ Değişiklik yoksa "Bu seansta commit edilmiş değişiklik bulunamadı." yaz.""
         if response.status_code == 200:
             data = response.json()
             return data["content"][0]["text"].strip()
-    except Exception:  # noqa: BLE001
-        pass
-    return None
+    except Exception as e:
+        logger.error(f"Claude API çağrısı sırasında hata oluştu: {str(e)}")
+        return None
 
 
 def save_session_summary(conn, context_id: int, working_dir: Path) -> str | None:

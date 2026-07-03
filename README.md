@@ -13,7 +13,7 @@ Geliştirme ortamınızın tam bir anlık görüntüsünü (snapshot) alır, aç
 
 ## 🎯 Projenin Amacı ve Çözdüğü Sorun (Neden Var?)
 
-Gün içinde birden fazla proje (örneğin; bir yanda `whatsapp-bot`, diğer yanda `web-dashboard`) arasında geçiş yapmak zorunda olan bir mühendissiniz. Her geçişte şu sorunları yaşarsınız:
+Gün içinde birden fazla proje arasında geçiş yapmak zorunda olan bir mühendissiniz. Her geçişte şu sorunları yaşarsınız:
 - "En son hangi dosyalarda çalışıyordum?"
 - "IDE'nin pencere yerleşimi nasıldı?"
 - "Hangi branch'te kalmıştım ve son commit'im neydi?"
@@ -71,9 +71,9 @@ Sistem, MCP standartlarına uygun olarak `stdio` (Standart Giriş/Çıkış) üz
 
 Context-Automator'ı iki farklı yöntemle çalıştırabilirsiniz: Yerel ortamda veya Docker konteyneri olarak.
 
-### Seçenek 1: Docker Üzerinden Çalıştırma (Önerilen)
+### Seçenek 1: Docker Üzerinden Çalıştırma 
+*(Not: Docker sürümü, IDE otomasyonu (VS Code açma) yapmaz; yalnızca MCP sunucusunu arka planda ayağa kaldırır.)*
 
-Yerel bilgisayarınızı kirletmeden, projenin izole bir versiyonunu anında ayağa kaldırabilirsiniz.
 
 1. Depoyu klonlayın ve dizine gidin:
 ```bash
@@ -96,7 +96,15 @@ docker run --rm -e ANTHROPIC_API_KEY="sk-ant-api-key-buraya" context-automator
 
 ```
 
+### Docker ile Çalıştırma
+Verilerinizin kalıcı olması için yerel dizininizi konteynere bağlayın:
 
+```bash
+docker run -d \
+  -v ${PWD}/data:/app/data \
+  -v ${PWD}/logs:/app/logs \
+  -e ANTHROPIC_API_KEY="senin_keyin" \
+  context-automator
 
 ### Seçenek 2: Yerel (Local) Ortam Kurulumu
 

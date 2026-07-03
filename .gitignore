@@ -1,6 +1,9 @@
-# Proje verisi - kişisel, repo'ya girmiyor
-data/
-data/contexts.db
+# IDE ve OS Dosyaları
+.DS_Store
+Thumbs.db
+.vscode/
+.cursor/
+*.swp
 
 # Python
 .venv/
@@ -11,16 +14,8 @@ dist/
 build/
 .eggs/
 
-# IDE
-.vscode/settings.json
-.cursor/
-*.swp
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Geçici
-*.tmp
-*.log
+# Kişisel Veriler ve Loglar (Gitmeyecek)
 .env
+data/
+logs/
+*.log

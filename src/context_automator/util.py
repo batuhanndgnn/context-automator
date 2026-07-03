@@ -17,7 +17,7 @@ from context_automator.db.schema import ensure_schema, get_connection, default_d
 # Proje kök dizininde 'logs' klasörü oluştur
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 # src/context_automator/util.py içindeki ilgili kısmı şu şekilde değiştir:
-LOG_DIR = r"C:\Users\bdogan\Desktop\context-automator-clean\logs"
+LOG_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "logs"))
 os.makedirs(LOG_DIR, exist_ok=True)
 LOG_FILE = os.path.join(LOG_DIR, 'app.log')
 
