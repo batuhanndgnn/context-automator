@@ -1,4 +1,4 @@
-# 🧠 Context-Automator (MCP Server)
+#  Context-Automator (MCP Server)
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![MCP Protocol](https://img.shields.io/badge/MCP-Protocol-green.svg)](https://modelcontextprotocol.io/)
@@ -11,7 +11,7 @@ Geliştirme ortamınızın tam bir anlık görüntüsünü (snapshot) alır, aç
 
 ---
 
-## 🎯 Projenin Amacı ve Çözdüğü Sorun (Neden Var?)
+##  Projenin Amacı ve Çözdüğü Sorun (Neden Var?)
 
 Gün içinde birden fazla proje arasında geçiş yapmak zorunda olan bir mühendissiniz. Her geçişte şu sorunları yaşarsınız:
 - "En son hangi dosyalarda çalışıyordum?"
@@ -23,20 +23,20 @@ Gün içinde birden fazla proje arasında geçiş yapmak zorunda olan bir mühen
 
 ---
 
-## 🚀 Temel Özellikler (Features)
+##  Temel Özellikler (Features)
 
-- 🔄 **Otonom Git Yönetimi (Agentic Git - Faz 6):** Kaydedilmemiş (dirty) değişiklikler tespit edildiğinde, sistem alt süreç kilitlenmelerini tolere ederek otonom kararlar alır (`stash`, `commit_wip`, `discard`).
-- 🤖 **Yapay Zeka Destekli Seans Özeti (Faz 7 + Faz 8):** `save_context` tetiklendiğinde Git diff ve log verileri toplanır ve özetlenir. İki yol var:
+-  **Otonom Git Yönetimi (Agentic Git - Faz 6):** Kaydedilmemiş (dirty) değişiklikler tespit edildiğinde, sistem alt süreç kilitlenmelerini tolere ederek otonom kararlar alır (`stash`, `commit_wip`, `discard`).
+-  **Yapay Zeka Destekli Seans Özeti (Faz 7 + Faz 8):** `save_context` tetiklendiğinde Git diff ve log verileri toplanır ve özetlenir. İki yol var:
   - **MCP Sampling (öncelikli, Faz 8):** Sunucu kendi API key'ini kullanmaz — "bana bir mesaj üret" isteğini MCP session üzerinden client'a (Claude Desktop) yollar. Maliyet ve model seçimi tamamen client tarafındaki ayarlarda kalır.
   - **BYOK fallback (Faz 7):** Client sampling desteklemiyorsa (veya CLI'den, MCP session olmadan çalıştırılıyorsa) ve `ANTHROPIC_API_KEY` tanımlıysa doğrudan Anthropic API'ye gidilir.
   - *(Kontrol tamamen sizde — arka planda izinsiz tarama yapılmaz, her iki yol da yalnızca `save_context` çağrıldığında tetiklenir.)*
-- 🔌 **Agnostik IDE Desteği:** Hem VS Code hem de Cursor ekosistemleriyle tam entegre (Native support) çalışır. Dosyaları satır ve sütun konumlarına kadar hatasız yükler.
-- 📦 **Docker & İzolasyon (kısmi):** MCP sunucusunun kendisi (tools/resources, git durumu okuma) bağımsız bir Linux konteynerinde çalışabilir. **Önemli sınırlama:** proje Windows'a özel APPDATA/LOCALAPPDATA yollarına ve `.cmd` çalıştırılabilirlerine dayandığı için IDE otomasyonu (VS Code/Cursor açma, workspaceStorage okuma) konteyner içinde çalışmaz -- bu, ayrı bir Windows-native süreç gerektirir. Docker'ı sadece git-durumu/resource kısmını izole çalıştırmak için düşünün, tam özellik seti için değil.
-- 🔒 **Tam Gizlilik:** Tüm meta veriler (SQLite db) makinenizde lokal kalır, bulut senkronizasyonu yoktur. Sadece açık komut verdiğinizde özet için dışarı veri gider (sampling ile bile bu, sizin MCP client'ınızın kendi çıkış kanalıdır).
+-  **Agnostik IDE Desteği:** Hem VS Code hem de Cursor ekosistemleriyle tam entegre (Native support) çalışır. Dosyaları satır ve sütun konumlarına kadar hatasız yükler.
+-  **Docker & İzolasyon (kısmi):** MCP sunucusunun kendisi (tools/resources, git durumu okuma) bağımsız bir Linux konteynerinde çalışabilir. **Önemli sınırlama:** proje Windows'a özel APPDATA/LOCALAPPDATA yollarına ve `.cmd` çalıştırılabilirlerine dayandığı için IDE otomasyonu (VS Code/Cursor açma, workspaceStorage okuma) konteyner içinde çalışmaz -- bu, ayrı bir Windows-native süreç gerektirir. Docker'ı sadece git-durumu/resource kısmını izole çalıştırmak için düşünün, tam özellik seti için değil.
+-  **Tam Gizlilik:** Tüm meta veriler (SQLite db) makinenizde lokal kalır, bulut senkronizasyonu yoktur. Sadece açık komut verdiğinizde özet için dışarı veri gider (sampling ile bile bu, sizin MCP client'ınızın kendi çıkış kanalıdır).
 
 ---
 
-## 🏗️ Sistem Mimarisi
+##  Sistem Mimarisi
 
 Sistem, MCP standartlarına uygun olarak `stdio` (Standart Giriş/Çıkış) üzerinden Claude Desktop veya uyumlu IDE eklentileri ile haberleşir.
 
@@ -69,7 +69,7 @@ Sistem, MCP standartlarına uygun olarak `stdio` (Standart Giriş/Çıkış) üz
 
 ---
 
-## ⚙️ Kurulum ve Konfigürasyon
+##  Kurulum ve Konfigürasyon
 
 Context-Automator'ı iki farklı yöntemle çalıştırabilirsiniz: Yerel ortamda veya Docker konteyneri olarak.
 
@@ -146,7 +146,7 @@ Claude uygulamasının bu MCP sunucusunu tanıyabilmesi için konfigürasyon dos
 
 ---
 
-## 🤖 AI Seans Özeti Nasıl Çalışır? (Sampling vs. BYOK)
+##  AI Seans Özeti Nasıl Çalışır? (Sampling vs. BYOK)
 
 `save_context` her çalıştığında bir AI özeti üretmeye çalışır. Bunu iki farklı yoldan yapabilir:
 
@@ -159,7 +159,7 @@ Her iki yol da başarısız olursa (ne sampling ne API key varsa) `save_context`
 
 ---
 
-## 💻 Kullanım (CLI & MCP Tool)
+##  Kullanım (CLI & MCP Tool)
 
 ### Komut Satırı (CLI) Aracılığıyla
 
@@ -186,7 +186,7 @@ Claude Desktop'a sadece ne istediğinizi söylemeniz yeterlidir:
 
 ---
 
-## 🛠️ Sorun Giderme (Troubleshooting)
+##  Sorun Giderme (Troubleshooting)
 
 **S: Git işlemleri (Faz 6) sırasında zaman aşımı (`timeout`) hatası alıyorum.**
 
@@ -206,7 +206,7 @@ Claude Desktop'a sadece ne istediğinizi söylemeniz yeterlidir:
 
 ---
 
-## ✅ Testler
+##  Testler
 
 Proje pytest ile test ediliyor. Çalıştırmak için:
 
