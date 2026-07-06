@@ -42,11 +42,19 @@ def reopen_files(ide_type: str, cursor_positions: list[dict]) -> list[ReopenResu
             # `-g path:line:column` aynı pencerede dosyayı belirtilen
             # konuma giderek açar (--new-window vermiyoruz, var olan
             # pencereyi kullanır).
-            subprocess.run(
+            r = subprocess.run(
                 f'"{cli_path}" -g "{file_path}:{line}:{col}"',
                 shell=True, capture_output=True, text=True, timeout=10,
             )
-            results.append(ReopenResult(file=file_path, ok=True))
+            # NOT: Önceden returncode hiç kontrol edilmiyordu -- komut gerçekten
+            # başarısız olsa bile (yanlış path, IDE kapalı, cli bulunamadı vb.)
+            # sonuç hep ok=True olarak raporlanıyordu, yani kullanıcıya
+            # "N/N dosya açıldı" denip aslında hiçbiri açılmamış olabilirdi.
+            if r.returncode == 0:
+                results.append(ReopenResult(file=file_path, ok=True))
+            else:
+                err = (r.stderr or r.stdout or f"exit code {r.returncode}").strip()
+                results.append(ReopenResult(file=file_path, ok=False, error=err))
         except UnsafePathError as e:
             results.append(ReopenResult(file=file_path, ok=False, error=str(e)))
         except Exception as e:  # noqa: BLE001

@@ -31,7 +31,7 @@ Gün içinde birden fazla proje arasında geçiş yapmak zorunda olan bir mühen
   - **BYOK fallback (Faz 7):** Client sampling desteklemiyorsa (veya CLI'den, MCP session olmadan çalıştırılıyorsa) ve `ANTHROPIC_API_KEY` tanımlıysa doğrudan Anthropic API'ye gidilir.
   - *(Kontrol tamamen sizde — arka planda izinsiz tarama yapılmaz, her iki yol da yalnızca `save_context` çağrıldığında tetiklenir.)*
 - 🔌 **Agnostik IDE Desteği:** Hem VS Code hem de Cursor ekosistemleriyle tam entegre (Native support) çalışır. Dosyaları satır ve sütun konumlarına kadar hatasız yükler.
-- 📦 **Docker & İzolasyon:** Herhangi bir yerel bağımlılığa ihtiyaç duymadan, sistemin tamamen izole bir konteyner içerisinde çalışabilmesini sağlayan Docker desteği.
+- 📦 **Docker & İzolasyon (kısmi):** MCP sunucusunun kendisi (tools/resources, git durumu okuma) bağımsız bir Linux konteynerinde çalışabilir. **Önemli sınırlama:** proje Windows'a özel APPDATA/LOCALAPPDATA yollarına ve `.cmd` çalıştırılabilirlerine dayandığı için IDE otomasyonu (VS Code/Cursor açma, workspaceStorage okuma) konteyner içinde çalışmaz -- bu, ayrı bir Windows-native süreç gerektirir. Docker'ı sadece git-durumu/resource kısmını izole çalıştırmak için düşünün, tam özellik seti için değil.
 - 🔒 **Tam Gizlilik:** Tüm meta veriler (SQLite db) makinenizde lokal kalır, bulut senkronizasyonu yoktur. Sadece açık komut verdiğinizde özet için dışarı veri gider (sampling ile bile bu, sizin MCP client'ınızın kendi çıkış kanalıdır).
 
 ---
@@ -203,6 +203,24 @@ Claude Desktop'a sadece ne istediğinizi söylemeniz yeterlidir:
 **S: Docker konteynerini elle çalıştırdığımda hiçbir şey olmuyor / hemen çıkıyor.**
 
 > C: `-i` flag'ini unutmuşsunuzdur. `stdio` transport stdin bekler; `-i` olmadan konteyner stdin'e bağlanamaz. `docker run --rm -i -e ANTHROPIC_API_KEY="..." context-automator` kullanın.
+
+---
+
+## ✅ Testler
+
+Proje pytest ile test ediliyor. Çalıştırmak için:
+
+```bash
+pip install -e ".[dev]"
+pytest tests/ -v
+```
+
+Kapsam raporu için:
+```bash
+pytest tests/ --cov=context_automator --cov-report=term-missing
+```
+
+Her push/PR'da `.github/workflows/tests.yml` üzerinden otomatik olarak da çalışır.
 
 ---
 

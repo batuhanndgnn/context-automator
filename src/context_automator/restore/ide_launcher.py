@@ -12,7 +12,16 @@ from context_automator.ide_paths import resolve_ide_executable
 # cmd.exe için tehlikeli olan karakterler — bunlar tırnak içinde bile
 # cmd.exe tarafından özel işlenebiliyor (özellikle %). Windows dosya yolları
 # zaten " karakterini barındıramaz, ama savunma amaçlı burada da reddediyoruz.
-_SHELL_METACHARACTERS = set('"&|^<>%')
+# NOT: Liste genişletildi -- önceki hali cmd.exe'nin gecikmeli değişken
+# genişletmede kullandığı `!`, alt-komut/gruplama için `(` `)`, komut
+# ayrımları için `;` ve `,`, ve backtick karakterlerini kapsamıyordu. Bu bir
+# blacklist olduğu için hiçbir zaman %100 tam olamaz -- asıl güvenli çözüm
+# shell=True'dan tamamen kaçınmaktır, ama .cmd/.bat çalıştırmak Windows'ta
+# Python subprocess ile shell=False iken doğrudan mümkün değil (bkz. Python
+# docs: .bat/.cmd için "shell must be True"). İleride cmd.exe'ye liste-tabanlı
+# argüman geçirme (ör. ["cmd", "/c", str(cli_path), ...]) daha güçlü bir
+# alternatif olarak değerlendirilmeli.
+_SHELL_METACHARACTERS = set('"&|^<>%!(),;`\n\r')
 
 
 class UnsafePathError(ValueError):

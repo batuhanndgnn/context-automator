@@ -45,9 +45,17 @@ CREATE TABLE IF NOT EXISTS context_events (
 
 def get_connection(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(db_path))
+    # NOT: Önceden burada busy_timeout ayarlanmamıştı. Aynı anda birden fazla
+    # tool çağrısı (ör. Claude arka arkaya save_context gönderirse) farklı
+    # bağlantılar açtığı için SQLite anlık olarak "database is locked" hatası
+    # verebiliyordu. timeout parametresi + WAL modu, yazma kilidini bekleyip
+    # (varsayılan 5 saniye) artık hatasız ilerlemesini sağlıyor -- ayrıca bir
+    # queue/semaphore mekanizmasına gerek kalmadan bu araç ölçeğinde yeterli.
+    conn = sqlite3.connect(str(db_path), timeout=5.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 5000")
+    conn.execute("PRAGMA journal_mode = WAL")
     return conn
 
 

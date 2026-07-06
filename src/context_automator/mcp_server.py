@@ -19,7 +19,14 @@ import os
 import subprocess
 import time
 from pathlib import Path
-
+# NOT: `vision_processor` importu buradan kaldırıldı. Bu paketin bağımlılıkları
+# (opencv-python, mss, numpy) pyproject.toml'da deklare edilmemiş ve .venv'de
+# kurulu değildi -- modül seviyesinde (fonksiyon içinde değil, dosyanın en
+# üstünde) yapılan bu import, MCP sunucusu her başlatıldığında
+# ModuleNotFoundError ile SUNUCUNUN TAMAMEN ÇÖKMESİNE yol açıyordu, hatta
+# vision özelliği hiç kullanılmasa bile. Vision entegrasyonu ayrı bir fazda,
+# opsiyonel/lazy bir import olarak (yalnızca gerçekten kullanılacağı yerde,
+# try/except ile) geri eklenmeli.
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp import types
@@ -84,7 +91,13 @@ def _run(cmd: list[str], cwd: Path) -> str:
             # bunu görürse "temiz" değil "bilinmiyor/hata" olarak yorumlamalı.
             return _RUN_ERROR_SENTINEL
 
-    return "(git komutu başarısız - retry tükendi)"
+    # NOT: Önceden burada düz bir metin string'i dönülüyordu -- bu, yukarıdaki
+    # genel exception path'iyle aynı sınıf hataya düşüyordu: çağıran taraf
+    # bunu gerçek git çıktısından ayırt edemiyordu (ör. 'status' action'ı
+    # bunu 'değişen dosyalar' sanıp dirty=True derdi). Retry tükenmesi de bir
+    # hata durumudur, aynı sentinel'i dönüyoruz.
+    logger.error(f"Retry tükendi, komut başarısız: {' '.join(cmd)}")
+    return _RUN_ERROR_SENTINEL
 
 
 # ---------------------------------------------------------------------------
@@ -602,6 +615,9 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
         elif action == "stash":
             out = _run(["git", "stash", "push", "-m",
                         f"context-automator auto-stash {now_iso()}"], cwd)
+            if out == _RUN_ERROR_SENTINEL:
+                return _err("Git stash sırasında beklenmedik bir hata oluştu, "
+                            "ayrıntı için app.log'a bak.", "git_stash_error")
             logger.info(f"Git stash uygulandı: {cwd}")
             return _ok({
                 "status": "ok",
@@ -614,21 +630,47 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             # Önce ekleyebiliyor muyuz kontrol edelim
             add_out = _run(["git", "add", "-u"], cwd)
             logger.info(f"Git add sonucu: {add_out}") # Neyi ekledik görelim
-            
+            if add_out == _RUN_ERROR_SENTINEL:
+                return _err("Git add sırasında beklenmedik bir hata oluştu, "
+                            "ayrıntı için app.log'a bak.", "git_add_error")
+
             ts = now_iso()[:16].replace("T", " ")
             commit_msg = f"WIP: auto-save {ts}"
             out = _run(["git", "commit", "-m", commit_msg], cwd)
-            
+
             logger.info(f"Git commit sonucu: {out}")
+
+            # NOT: Önceden `out` içeriğine hiç bakılmadan her zaman status="ok"
+            # dönülüyordu. git commit başarısız olabilir (user.name/email
+            # ayarlı değil, commit edilecek bir şey yok, vs.) ve bu durumda
+            # `_run()` stderr'i döndürür -- bunu artık gerçek bir başarı
+            # göstergesi olarak kontrol ediyoruz.
+            if out == _RUN_ERROR_SENTINEL:
+                return _err("Git commit sırasında beklenmedik bir hata oluştu, "
+                            "ayrıntı için app.log'a bak.", "git_commit_error")
+
+            failure_markers = ("nothing to commit", "not a git repository",
+                               "please tell me who you are", "fatal:")
+            committed = not any(m in out.lower() for m in failure_markers)
+
             return _ok({
-                "status": "ok",
+                "status": "ok" if committed else "not_committed",
                 "output": out,
-                "message": f"Commit denendi: {commit_msg}"
+                "message": (f"Commit oluşturuldu: {commit_msg}" if committed
+                           else "Commit oluşturulamadı — çıktıyı kontrol et."),
             })
 
         elif action == "discard":
             out1 = _run(["git", "checkout", "--", "."], cwd)
+            if out1 == _RUN_ERROR_SENTINEL:
+                return _err("Git checkout sırasında beklenmedik bir hata oluştu "
+                            "— GERİ ALINAMAZ işlem güvenlik amacıyla durduruldu, "
+                            "ayrıntı için app.log'a bak.", "git_discard_error")
             out2 = _run(["git", "clean", "-fd"], cwd)
+            if out2 == _RUN_ERROR_SENTINEL:
+                return _err("Git clean sırasında beklenmedik bir hata oluştu "
+                            "(checkout kısmı zaten uygulanmış olabilir!), "
+                            "ayrıntı için app.log'a bak.", "git_discard_error")
             logger.warning(f"Git discard uygulandı (GERİ ALINAMAZ): {cwd}")
             return _ok({
                 "status": "ok",

@@ -115,9 +115,34 @@ def _open_db_readonly(db_path: Path) -> sqlite3.Connection:
         conn.execute("SELECT 1")
         return conn
     except sqlite3.OperationalError:
-        tmp_copy = db_path.parent / f"_ctxauto_copy_{db_path.name}"
+        # NOT: Bu fallback kopyası önceden hiçbir zaman silinmiyordu -- IDE'nin
+        # gerçek workspaceStorage klasöründe her çağrıda bir çöp dosya
+        # birikiyordu. Ayrıca aynı isim her zaman kullanıldığı için eşzamanlı
+        # çağrılarda üzerine yazma riski vardı. Artık benzersiz bir isimle
+        # geçici bir klasöre kopyalıyoruz ve bağlantıyı kapatan taraf sorumlu
+        # -- bu fonksiyonu kullananlar artık conn.close() sonrası kopyayı da
+        # silmeli (bkz. read_editor_state / debug_dump_state).
+        import tempfile
+        import uuid
+        tmp_dir = Path(tempfile.gettempdir())
+        tmp_copy = tmp_dir / f"_ctxauto_copy_{uuid.uuid4().hex}_{db_path.name}"
         shutil.copy2(db_path, tmp_copy)
-        return sqlite3.connect(str(tmp_copy))
+        conn = sqlite3.connect(str(tmp_copy))
+        conn._ctxauto_tmp_copy = tmp_copy  # type: ignore[attr-defined]
+        return conn
+
+
+def _close_and_cleanup(conn: sqlite3.Connection) -> None:
+    """conn.close() + varsa _open_db_readonly'nin oluşturduğu geçici
+    kopyayı diskten siler. Tüm çağıranlar artık conn.close() yerine
+    bunu kullanmalı -- aksi halde temp dizininde birikirler."""
+    tmp_copy = getattr(conn, "_ctxauto_tmp_copy", None)
+    conn.close()
+    if tmp_copy is not None:
+        try:
+            Path(tmp_copy).unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -197,7 +222,7 @@ def debug_dump_state(ide: IDEConfig, working_dir: Path,
     try:
         conn = _open_db_readonly(db_path)
         rows = conn.execute("SELECT key, value FROM ItemTable").fetchall()
-        conn.close()
+        _close_and_cleanup(conn)
     except Exception as e:  # noqa: BLE001
         return {"error": str(e)}
 
@@ -259,7 +284,7 @@ def read_editor_state(ide: IDEConfig, working_dir: Path) -> EditorState:
 
         history_raw = _get(HISTORY_KEY)
         layout_raw  = _get(LAYOUT_KEY)
-        conn.close()
+        _close_and_cleanup(conn)
     except Exception as e:  # noqa: BLE001
         return EditorState(error=str(e), raw_keys_found=keys)
 

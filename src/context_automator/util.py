@@ -138,5 +138,15 @@ def upsert_context(conn, record: dict) -> int:
     row = conn.execute(
         "SELECT id FROM contexts WHERE name = ?", (record["name"],)
     ).fetchone()
-    conn.commit()
+    # NOT: Burada önceden bir `conn.commit()` vardı. Bu, atomikliği (atomicity)
+    # bozuyordu: tüm çağıranlar (mcp_server.save_context, cli.cmd_save)
+    # upsert_context()'ten sonra ayrıca log_event() çağırıp kendi
+    # conn.commit()'lerini yapıyor -- yani aslında TEK bir mantıksal işlem
+    # ("context'i kaydet + olayı logla") iki ayrı commit'e bölünüyordu.
+    # Aradaki anda uygulama çökerse (disk dolması, elektrik kesintisi, IDE
+    # kapanması) contexts satırı kaydedilmiş ama context_events'e ilişkin
+    # olay hiç yazılmamış olabilirdi -- yarım kalmış veri. Artık commit
+    # sorumluluğu tamamen çağırana ait: upsert_context + log_event aynı
+    # transaction içinde, tek commit ile ya hep ya hiç (all-or-nothing)
+    # kaydediliyor.
     return row["id"]
