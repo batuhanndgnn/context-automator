@@ -144,6 +144,25 @@ Claude uygulamasının bu MCP sunucusunu tanıyabilmesi için konfigürasyon dos
 }
 ```
 
+**Docker Üzerinden Kullanım İçin Konfigürasyon:**
+Eğer yerel kurulum yerine Docker imajını Claude Desktop'a bağlamak isterseniz, `claude_desktop_config.json` dosyanızı şu şekilde güncellemelisiniz:
+
+```json
+{
+  "mcpServers": {
+    "context-automator": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "-e",
+        "ANTHROPIC_API_KEY=senin_gercek_api_keyin",
+        "context-automator"
+      ]
+    }
+  }
+}
 ---
 
 ##  AI Seans Özeti Nasıl Çalışır? (Sampling vs. BYOK)
