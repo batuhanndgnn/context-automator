@@ -52,6 +52,9 @@ def _err(msg: str, code: str = "error") -> list[types.TextContent]:
                                                ensure_ascii=False))]
 
 
+_RUN_ERROR_SENTINEL = "\x00__CONTEXT_AUTOMATOR_RUN_ERROR__\x00"
+
+
 def _run(cmd: list[str], cwd: Path) -> str:
     retries = 2  # Toplam 2 kez dene
     for i in range(retries):
@@ -73,8 +76,14 @@ def _run(cmd: list[str], cwd: Path) -> str:
             time.sleep(1) # Git kilidinin açılması için 1 saniye bekle
         except Exception as e:
             logger.error(f"Beklenmedik hata: {str(e)}", exc_info=True)
-            return ""
-            
+            # NOT: Önceden burada "" dönülüyordu. Bu tehlikeliydi, çünkü
+            # `resolve_git_state`'in "status" action'ı `dirty = bool(status.strip())`
+            # ile karar veriyor — boş string hem "gerçekten temiz" hem de
+            # "hata oluştu" anlamına gelebiliyordu ve ikisi ayırt edilemiyordu.
+            # Artık ayırt edilebilir bir sentinel dönüyoruz; çağıran taraf
+            # bunu görürse "temiz" değil "bilinmiyor/hata" olarak yorumlamalı.
+            return _RUN_ERROR_SENTINEL
+
     return "(git komutu başarısız - retry tükendi)"
 
 
@@ -324,9 +333,17 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             log_event(conn, ctx_id, "save", {"ide_type": ide_type})
             conn.commit()
 
-            # FAZ 7: AI seans özeti (ANTHROPIC_API_KEY varsa)
+            # FAZ 7/8: AI seans özeti. Önce MCP Sampling denenir (client
+            # destekliyorsa) — sunucu kendi API key'ini kullanmaz, maliyet ve
+            # model seçimi Claude Desktop tarafında kalır. Sampling mevcut
+            # değilse ANTHROPIC_API_KEY ile BYOK fallback'e düşülür.
             working_dir = Path(record["working_dir"])
-            summary = save_session_summary(conn, ctx_id, working_dir)
+            try:
+                mcp_session = app.request_context.session
+            except LookupError:
+                mcp_session = None
+            summary = await save_session_summary(conn, ctx_id, working_dir,
+                                                  mcp_session=mcp_session)
             logger.info(f"Başarıyla kaydedildi: {ctx_name}")
         except Exception as e:
             logger.error(f"save_context DB yazma hatası: {str(e)}", exc_info=True)
@@ -537,8 +554,11 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
         ctx_name = arguments.get("context_name", "").strip()
         logger.info(f"resolve_git_state tetiklendi: Action -> {action}, Proje -> {ctx_name}")
 
-        # Çalışma dizini: Sabit kök dizine zorluyoruz
-        cwd = Path(r"C:\Users\bdogan\Desktop\context-automator-clean")
+        # Çalışma dizini: context_name verilmezse aktif projeye (switch_context'in
+        # ayarladığı _current_project_dir) düş, o da yoksa MCP sunucusunun cwd'sine.
+        # ÖNEMLİ: Burada hardcoded bir yol OLMAMALI — 'discard' geri alınamaz bir
+        # işlem, yanlış dizinde çalışırsa veri kaybına yol açar.
+        cwd = _current_project_dir or Path.cwd()
         logger.info(f"Git işlemi için kök dizin: {cwd}")
 
         if ctx_name:
@@ -557,7 +577,15 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
         if action == "status":
             branch  = _run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd)
             status  = _run(["git", "status", "--short"], cwd)
-            dirty   = bool(status.strip())
+
+            if status == _RUN_ERROR_SENTINEL:
+                return _err(
+                    "Git status okunurken beklenmedik bir hata oluştu — "
+                    "'temiz' olarak varsayılmadı, ayrıntı için app.log'a bak.",
+                    "git_status_error",
+                )
+
+            dirty = bool(status.strip())
             return _ok({
                 "status": "ok",
                 "working_dir": str(cwd),

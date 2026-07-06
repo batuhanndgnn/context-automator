@@ -1,3 +1,8 @@
+# Manuel smoke-test script'i (pytest değil). resolve_git_state burada
+# context_name VERMEDEN çağrılıyor — bu, sunucunun _current_project_dir'e
+# (yoksa Path.cwd()'e) düşmesini test eder. Önceden burada hardcoded bir
+# kişisel path'e ("C:\Users\bdogan\Desktop\context-automator-clean") düşülüyordu,
+# bu bug düzeltildi (bkz. mcp_server.py: resolve_git_state).
 import json
 import subprocess
 

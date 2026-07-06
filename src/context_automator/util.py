@@ -30,10 +30,11 @@ def setup_logger():
         formatter = logging.Formatter('%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s')
         file_handler.setFormatter(formatter)
         log.addHandler(file_handler)
-        
-        # PRO ADIM: Logları anında diske yazmaya zorla (flush)
-        file_handler.doRollover = lambda: None 
-        
+        # NOT: Burada önceden `file_handler.doRollover = lambda: None` vardı.
+        # Yorumda "flush'a zorluyoruz" yazsa da gerçekte yaptığı şey
+        # RotatingFileHandler'ın rotasyon mekanizmasını tamamen devre dışı
+        # bırakmaktı — yani maxBytes/backupCount hiç çalışmıyordu ve app.log
+        # sınırsız büyüyordu. Kaldırıldı; rotasyon artık normal çalışıyor.
     return log
 
 # Tüm projede kullanılacak global logger objesi

@@ -13,6 +13,7 @@ from context_automator.capture.git_state import capture_git_state
 from context_automator.adapters.vscode_family import get_ide_configs, debug_dump_state
 from context_automator.restore.ide_launcher import launch_ide_soft
 from context_automator.restore.file_restorer import reopen_files
+from context_automator.capture.session_logger import generate_session_summary_via_api, gather_session_data
 
 
 # ---------------------------------------------------------------------------
@@ -35,6 +36,20 @@ def cmd_save(args):
         ctx_id = upsert_context(conn, record)
         log_event(conn, ctx_id, "save", {"ide_type": args.ide})
         conn.commit()
+
+        # Not: CLI'nin bir MCP session'ı yok, dolayısıyla Sampling kullanamaz —
+        # sadece ANTHROPIC_API_KEY tanımlıysa (BYOK) özet üretir. MCP aracı
+        # (save_context) önce Sampling'i dener, o başarısız olursa aynı BYOK
+        # yoluna düşer.
+        session_data = gather_session_data(Path(record["working_dir"]))
+        summary = generate_session_summary_via_api(session_data)
+        if summary:
+            conn.execute(
+                "UPDATE contexts SET session_summary = ? WHERE id = ?",
+                (summary, ctx_id),
+            )
+            conn.commit()
+            print(f"\n[AI özet] {summary}")
     finally:
         conn.close()
 

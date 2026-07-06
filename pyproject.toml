@@ -4,9 +4,15 @@ version = "0.1.0"
 description = "Geliştirme ortamı snapshot/restore aracı (Cursor & VS Code, MCP üzerinden)"
 requires-python = ">=3.10"
 dependencies = [
-    "mcp>=1.0.0",
-    "psutil>=5.9",
+    "mcp>=1.6.0",
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
 ]
+# Not: psutil eskiden buradaydı ama kod tabanında hiç kullanılmıyordu (IDE
+# process-readiness check'i için planlanmış ama hiç yazılmamıştı) — kaldırıldı.
+# httpx ve python-dotenv session_logger.py tarafından fiilen kullanılıyor ama
+# önceden burada deklare edilmemişti; README'de "ayrıca elle kur" diye
+# yamanmıştı. Artık `pip install -e .` tek başına yeterli.
 
 [project.optional-dependencies]
 dev = [

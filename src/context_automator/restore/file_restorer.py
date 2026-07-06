@@ -11,6 +11,7 @@ import subprocess
 from dataclasses import dataclass
 
 from context_automator.ide_paths import resolve_ide_executable
+from context_automator.restore.ide_launcher import _assert_safe_for_shell, UnsafePathError
 
 
 @dataclass
@@ -35,6 +36,9 @@ def reopen_files(ide_type: str, cursor_positions: list[dict]) -> list[ReopenResu
         if not file_path:
             continue
         try:
+            _assert_safe_for_shell(str(cli_path), "IDE çalıştırılabilir yolu")
+            _assert_safe_for_shell(str(file_path), "file_path")
+
             # `-g path:line:column` aynı pencerede dosyayı belirtilen
             # konuma giderek açar (--new-window vermiyoruz, var olan
             # pencereyi kullanır).
@@ -43,6 +47,8 @@ def reopen_files(ide_type: str, cursor_positions: list[dict]) -> list[ReopenResu
                 shell=True, capture_output=True, text=True, timeout=10,
             )
             results.append(ReopenResult(file=file_path, ok=True))
+        except UnsafePathError as e:
+            results.append(ReopenResult(file=file_path, ok=False, error=str(e)))
         except Exception as e:  # noqa: BLE001
             results.append(ReopenResult(file=file_path, ok=False, error=str(e)))
 

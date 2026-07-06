@@ -26,10 +26,13 @@ Gün içinde birden fazla proje arasında geçiş yapmak zorunda olan bir mühen
 ## 🚀 Temel Özellikler (Features)
 
 - 🔄 **Otonom Git Yönetimi (Agentic Git - Faz 6):** Kaydedilmemiş (dirty) değişiklikler tespit edildiğinde, sistem alt süreç kilitlenmelerini tolere ederek otonom kararlar alır (`stash`, `commit_wip`, `discard`).
-- 🤖 **Yapay Zeka Destekli Seans Özeti (Faz 7):** `save_context` tetiklendiğinde Git diff ve log verileri toplanarak **Claude 3 Haiku** modeline gönderilir. Ortaya çıkan teknik özet SQLite veritabanında saklanır. *(Kontrol tamamen sizdedir, arka planda izinsiz tarama yapmaz).*
+- 🤖 **Yapay Zeka Destekli Seans Özeti (Faz 7 + Faz 8):** `save_context` tetiklendiğinde Git diff ve log verileri toplanır ve özetlenir. İki yol var:
+  - **MCP Sampling (öncelikli, Faz 8):** Sunucu kendi API key'ini kullanmaz — "bana bir mesaj üret" isteğini MCP session üzerinden client'a (Claude Desktop) yollar. Maliyet ve model seçimi tamamen client tarafındaki ayarlarda kalır.
+  - **BYOK fallback (Faz 7):** Client sampling desteklemiyorsa (veya CLI'den, MCP session olmadan çalıştırılıyorsa) ve `ANTHROPIC_API_KEY` tanımlıysa doğrudan Anthropic API'ye gidilir.
+  - *(Kontrol tamamen sizde — arka planda izinsiz tarama yapılmaz, her iki yol da yalnızca `save_context` çağrıldığında tetiklenir.)*
 - 🔌 **Agnostik IDE Desteği:** Hem VS Code hem de Cursor ekosistemleriyle tam entegre (Native support) çalışır. Dosyaları satır ve sütun konumlarına kadar hatasız yükler.
 - 📦 **Docker & İzolasyon:** Herhangi bir yerel bağımlılığa ihtiyaç duymadan, sistemin tamamen izole bir konteyner içerisinde çalışabilmesini sağlayan Docker desteği.
-- 🔒 **Tam Gizlilik:** Tüm meta veriler (SQLite db) makinenizde lokal kalır, bulut senkronizasyonu yoktur. Sadece açık komut verdiğinizde özet için API'ye veri gider.
+- 🔒 **Tam Gizlilik:** Tüm meta veriler (SQLite db) makinenizde lokal kalır, bulut senkronizasyonu yoktur. Sadece açık komut verdiğinizde özet için dışarı veri gider (sampling ile bile bu, sizin MCP client'ınızın kendi çıkış kanalıdır).
 
 ---
 
@@ -42,7 +45,7 @@ Sistem, MCP standartlarına uygun olarak `stdio` (Standart Giriş/Çıkış) üz
 │              Claude Desktop / VS Code               │
 │                  (MCP Host)                         │
 └──────────────────────┬──────────────────────────────┘
-                       │ stdio transport
+                       │ stdio transport (+ sampling: server→client)
 ┌──────────────────────▼──────────────────────────────┐
 │              mcp_server.py (MCP Server)             │
 │                                                     │
@@ -54,15 +57,14 @@ Sistem, MCP standartlarına uygun olarak `stdio` (Standart Giriş/Çıkış) üz
        │               │               │
 ┌──────▼───────┐ ┌─────▼───────┐ ┌─────▼──────────────┐
 │   Capture    │ │   Restore   │ │    AI Logger       │
-│ Layer (Git,  │ │ Layer (IDE, │ │ Layer (Claude API) │
-│ State dump)  │ │ File load)  │ │                    │
+│ Layer (Git,  │ │ Layer (IDE, │ │ Layer (Sampling →  │
+│ State dump)  │ │ File load)  │ │  BYOK fallback)     │
 └──────┬───────┘ └─────┬───────┘ └─────┬──────────────┘
        └───────────────┼───────────────┘
                ┌───────▼───────┐
                │  SQLite DB    │
                │ (contexts.db) │
                └───────────────┘
-
 ```
 
 ---
@@ -71,72 +73,58 @@ Sistem, MCP standartlarına uygun olarak `stdio` (Standart Giriş/Çıkış) üz
 
 Context-Automator'ı iki farklı yöntemle çalıştırabilirsiniz: Yerel ortamda veya Docker konteyneri olarak.
 
-### Seçenek 1: Docker Üzerinden Çalıştırma 
-*(Not: Docker sürümü, IDE otomasyonu (VS Code açma) yapmaz; yalnızca MCP sunucusunu arka planda ayağa kaldırır.)*
-
-
-1. Depoyu klonlayın ve dizine gidin:
-```bash
-git clone [https://github.com/KULLANICI_ADINIZ/context-automator.git](https://github.com/KULLANICI_ADINIZ/context-automator.git)
-cd context-automator
-
-```
-
-
-2. Docker imajını oluşturun:
-```bash
-docker build -t context-automator .
-
-```
-
-
-3. Konteyneri başlatın (API Key'inizi çevresel değişken olarak ekleyerek):
-```bash
-docker run --rm -e ANTHROPIC_API_KEY="sk-ant-api-key-buraya" context-automator
-
-```
-
-### Docker ile Çalıştırma
-Verilerinizin kalıcı olması için yerel dizininizi konteynere bağlayın:
-
-```bash
-docker run -d \
-  -v ${PWD}/data:/app/data \
-  -v ${PWD}/logs:/app/logs \
-  -e ANTHROPIC_API_KEY="senin_keyin" \
-  context-automator
-
-### Seçenek 2: Yerel (Local) Ortam Kurulumu
+### Seçenek 1: Yerel (Local) Ortam Kurulumu
 
 Geliştirme yapmak veya doğrudan işletim sistemi üzerinden çalıştırmak isterseniz:
 
-1. Sanal ortamı hazırlayın ve bağımlılıkları yükleyin:
+1. Depoyu klonlayın:
+```bash
+git clone https://github.com/batuhanndgnn/context-automator.git
+cd context-automator
+```
+
+2. Sanal ortamı hazırlayın ve bağımlılıkları yükleyin:
 ```bash
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1  # Windows
 pip install -e ".[dev]"
-pip install httpx python-dotenv
-
 ```
+> `httpx` ve `python-dotenv` artık `pyproject.toml`'da tanımlı — ayrıca elle kurmanıza gerek yok.
 
-
-2. Projenin kök dizininde bir `.env` dosyası oluşturup API anahtarınızı girin:
+3. Projenin kök dizininde bir `.env` dosyası oluşturup API anahtarınızı girin (opsiyonel — bkz. "AI Seans Özeti Nasıl Çalışır?"):
 ```env
 ANTHROPIC_API_KEY=sk-ant-api-key-buraya
-
 ```
+> *Not: API anahtarı sağlanmazsa ve MCP client sampling desteklemiyorsa, araç stabil şekilde çalışmaya devam eder; yalnızca yapay zeka tarafından üretilen özetleme adımı sessizce atlanır.*
 
-
-> *Not: API anahtarı sağlanmazsa, araç stabil şekilde çalışmaya devam eder; yalnızca yapay zeka tarafından üretilen özetleme adımı sessizce atlanır.*
-
-
-3. Sunucuyu başlatın:
+4. Sunucuyu başlatın:
 ```bash
 python -m context_automator.mcp_server
-
 ```
 
+### Seçenek 2: Docker Üzerinden Çalıştırma
 
+*(Not: Docker sürümü, IDE otomasyonu (VS Code açma) yapmaz; yalnızca MCP sunucusunu ayağa kaldırır. `stdio` transport kullanıldığı için konteyneri mutlaka `-i` ile interaktif başlatmanız gerekir — aksi halde stdin bağlanmaz ve sunucu client ile hiç konuşamaz.)*
+
+1. Docker imajını oluşturun:
+```bash
+docker build -t context-automator .
+```
+
+2. Konteyneri başlatın — **`-i` flag'i zorunlu**:
+```bash
+docker run --rm -i -e ANTHROPIC_API_KEY="sk-ant-api-key-buraya" context-automator
+```
+
+3. Verilerinizin kalıcı olması için yerel dizininizi de bağlayın:
+```bash
+docker run --rm -i \
+  -v ${PWD}/data:/app/data \
+  -v ${PWD}/logs:/app/logs \
+  -e ANTHROPIC_API_KEY="senin_keyin" \
+  context-automator
+```
+> Claude Desktop `stdio` transport için konteyneri kendi başlatıp stdin/stdout'unu kendisi yönetir (aşağıdaki `claude_desktop_config.json` örneğine bakın); `-i` yalnızca konteyneri elle, terminalden test ederken gereklidir.
 
 ### Claude Desktop Entegrasyonu
 
@@ -154,8 +142,20 @@ Claude uygulamasının bu MCP sunucusunu tanıyabilmesi için konfigürasyon dos
     }
   }
 }
-
 ```
+
+---
+
+## 🤖 AI Seans Özeti Nasıl Çalışır? (Sampling vs. BYOK)
+
+`save_context` her çalıştığında bir AI özeti üretmeye çalışır. Bunu iki farklı yoldan yapabilir:
+
+1. **MCP Sampling (varsayılan, tercih edilen yol):** Sunucu `ANTHROPIC_API_KEY` gerektirmez. Bunun yerine MCP session üzerinden client'a (Claude Desktop) "şu prompt için bana bir mesaj üret" isteği gönderir (`session.create_message(...)`). Hangi modelin kullanılacağına ve maliyetin nereden düşeceğine client karar verir — sunucu tarafında hiçbir API key tutulmaz. Client sampling'i desteklemiyorsa bu adım sessizce atlanır ve BYOK'a düşülür.
+2. **BYOK (Bring Your Own Key) fallback:** Sampling mevcut değilse (client desteklemiyorsa, ya da CLI'den — MCP session'ı olmadan — çalıştırılıyorsa) ve `.env`'de `ANTHROPIC_API_KEY` tanımlıysa, sunucu doğrudan `https://api.anthropic.com/v1/messages` adresine istek atar. Bu durumda maliyet ve model seçimi sunucu tarafındadır.
+
+Her iki yol da başarısız olursa (ne sampling ne API key varsa) `save_context` yine de normal çalışır; sadece `session_summary` alanı boş kalır.
+
+**CLI'den (`context-automator save ...`) çalıştırdığınızda** MCP session olmadığı için yalnızca BYOK yolu kullanılabilir — sampling sadece MCP host (Claude Desktop vb.) üzerinden çağrıldığında devrededir.
 
 ---
 
@@ -166,7 +166,7 @@ Claude uygulamasının bu MCP sunucusunu tanıyabilmesi için konfigürasyon dos
 Sistem aynı zamanda terminalden de kullanılabilen yerleşik komutlara sahiptir:
 
 ```bash
-# Şu anki çalışma dizinini snapshot olarak kaydet (AI özetini tetikler)
+# Şu anki çalışma dizinini snapshot olarak kaydet (AI özetini tetikler — BYOK yoluyla)
 context-automator save whatsapp-bot --ide vscode
 
 # Kayıtlı projeleri ve son güncelleme tarihlerini gör
@@ -174,7 +174,6 @@ context-automator list
 
 # Projeye geri dön (VS Code açılır, dosyalar geri yüklenir)
 context-automator switch whatsapp-bot
-
 ```
 
 ### Doğal Dil ile (Claude Desktop Üzerinden)
@@ -193,20 +192,20 @@ Claude Desktop'a sadece ne istediğinizi söylemeniz yeterlidir:
 
 > C: Sistemin alt süreç kilitlenmesini engellemek için `DEVNULL` yönlendirmesi (Faz 6) aktif edilmiştir. Ancak yerel ortamınızda global `.gitconfig` dosyanızda imzalama (GPG sign) zorunluluğu varsa komut asılı kalabilir. Geçici olarak kapatmayı deneyin.
 
-**S: AI Seans özeti (Faz 7) üretilmiyor ve hata vermiyor.**
+**S: AI Seans özeti (Faz 7/8) üretilmiyor ve hata vermiyor.**
 
-> C: Kod mimarisi "Bring Your Own Key" (Kendi Anahtarını Getir) mantığıyla yazılmıştır. `.env` dosyanızı kontrol edin. Geçerli bir `ANTHROPIC_API_KEY` yoksa sistem hata fırlatmaz, sessizce o adımı atlar (`return None`).
+> C: Kod mimarisi önce Sampling'i, o başarısız olursa "Bring Your Own Key" (Kendi Anahtarını Getir) yolunu dener. MCP client'ınız sampling desteklemiyorsa ve `.env` dosyanızda geçerli bir `ANTHROPIC_API_KEY` yoksa sistem hata fırlatmaz, sessizce o adımı atlar.
 
 **S: Docker imajı build olurken `failed to connect to docker API` hatası alıyorum.**
 
 > C: Docker arka plan motoru (daemon) çalışmıyor demektir. Docker Desktop uygulamasını açıp yeşil "Engine running" ibaresini görene kadar bekleyin.
 
+**S: Docker konteynerini elle çalıştırdığımda hiçbir şey olmuyor / hemen çıkıyor.**
+
+> C: `-i` flag'ini unutmuşsunuzdur. `stdio` transport stdin bekler; `-i` olmadan konteyner stdin'e bağlanamaz. `docker run --rm -i -e ANTHROPIC_API_KEY="..." context-automator` kullanın.
+
 ---
 
 ## 📄 Lisans
 
-Bu proje [MIT Lisansı](https://www.google.com/search?q=LICENSE) altında lisanslanmıştır. Detaylar için `LICENSE` dosyasına bakabilirsiniz.
-
-```
-
-```
+Bu proje MIT Lisansı altında lisanslanmıştır. Detaylar için `LICENSE` dosyasına bakabilirsiniz.

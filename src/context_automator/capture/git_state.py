@@ -30,24 +30,30 @@ def capture_git_state(working_dir: Path) -> GitState:
     if not working_dir.exists():
         return GitState(available=False,
                         error=f"Dizin bulunamadı: {working_dir}")
+
+    # Üç git çağrısı da aynı try/except sarmalında. Önceden sadece ilk çağrı
+    # (branch) korunuyordu; status/stash çağrılarında bir kilitlenme/timeout
+    # olduğunda exception yakalanmadan yukarı fırlıyor ve preview_context /
+    # switch_context / save_context çöküyordu. Artık üçü de korumalı.
     try:
         branch_res = _run(["git", "rev-parse", "--abbrev-ref", "HEAD"], working_dir)
+
+        if branch_res.returncode != 0:
+            return GitState(available=False, error=branch_res.stderr.strip() or
+                             "bu dizin bir git deposu değil")
+
+        branch = branch_res.stdout.strip()
+
+        status_res = _run(["git", "status", "--porcelain"], working_dir)
+        dirty = bool(status_res.stdout.strip())
+
+        stash_res = _run(["git", "stash", "list"], working_dir)
+        stash_count = len([l for l in stash_res.stdout.splitlines() if l.strip()])
+
     except FileNotFoundError:
         return GitState(available=False, error="git CLI bulunamadı (PATH kontrol et)")
     except subprocess.TimeoutExpired:
         return GitState(available=False, error="git komutu zaman aşımına uğradı")
-
-    if branch_res.returncode != 0:
-        return GitState(available=False, error=branch_res.stderr.strip() or
-                         "bu dizin bir git deposu değil")
-
-    branch = branch_res.stdout.strip()
-
-    status_res = _run(["git", "status", "--porcelain"], working_dir)
-    dirty = bool(status_res.stdout.strip())
-
-    stash_res = _run(["git", "stash", "list"], working_dir)
-    stash_count = len([l for l in stash_res.stdout.splitlines() if l.strip()])
 
     return GitState(
         available=True, branch=branch, dirty=dirty, stash_count=stash_count
