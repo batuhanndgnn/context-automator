@@ -8,6 +8,8 @@ import os
 import shutil
 from pathlib import Path
 
+from context_automator.config import settings
+
 _ENV_OVERRIDES = {
     "cursor": "CONTEXT_AUTOMATOR_CURSOR_CLI",
     "vscode": "CONTEXT_AUTOMATOR_VSCODE_CLI",
@@ -44,10 +46,12 @@ def resolve_ide_executable(ide_type: str) -> tuple[str | None, list[str]]:
     """(yol, denenenler) döner. Bulunamazsa yol=None."""
     tried: list[str] = []
 
-    # 1. env var override
+    # 1. env var override (artık merkezi Settings üzerinden -- ama doğrudan
+    # os.environ'da manuel export edilmiş bir değer varsa da yakalıyoruz,
+    # geriye dönük uyumluluk için)
     env_key = _ENV_OVERRIDES.get(ide_type)
     if env_key:
-        override = os.environ.get(env_key)
+        override = settings.cli_override_for(ide_type) or os.environ.get(env_key)
         if override:
             tried.append(f"env {env_key}={override}")
             if Path(override).exists():

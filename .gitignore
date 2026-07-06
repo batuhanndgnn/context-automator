@@ -19,3 +19,9 @@ build/
 data/
 logs/
 *.log
+
+# Vision modülü ekran görüntüleri -- ASLA public repoya commit edilmemeli,
+# ekranda şifre/API key/özel mesaj gibi hassas içerik yakalanabilir.
+src/vision_processor/data/
+src/vision_processor/*.png
+src/vision_processor/*.jpg

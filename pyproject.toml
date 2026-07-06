@@ -7,12 +7,16 @@ dependencies = [
     "mcp>=1.6.0",
     "httpx>=0.27",
     "python-dotenv>=1.0",
+    "pydantic-settings>=2.0",
 ]
 # Not: psutil eskiden buradaydı ama kod tabanında hiç kullanılmıyordu (IDE
 # process-readiness check'i için planlanmış ama hiç yazılmamıştı) — kaldırıldı.
 # httpx ve python-dotenv session_logger.py tarafından fiilen kullanılıyor ama
 # önceden burada deklare edilmemişti; README'de "ayrıca elle kur" diye
 # yamanmıştı. Artık `pip install -e .` tek başına yeterli.
+# pydantic-settings config.py tarafından kullanılıyor (merkezi ayar yönetimi) —
+# venv'de zaten kuruluydu ama burada deklare edilmemişti, aynı hata kalıbı
+# tekrar etmesin diye eklendi.
 
 [project.optional-dependencies]
 dev = [

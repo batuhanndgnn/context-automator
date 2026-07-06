@@ -71,4 +71,13 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
 
 
 def default_db_path() -> Path:
+    # NOT: Artık CONTEXT_AUTOMATOR_DB_PATH env var'ı/.env ile override
+    # edilebiliyor (config.py). Boş bırakılırsa eski davranışa (proje kökü
+    # + data/contexts.db) düşülür -- mevcut kurulumu bozmaz. Bu aynı zamanda
+    # editable olmayan (`pip install .`, site-packages'e kopyalanan) bir
+    # kurulumda parents[3]'ün anlamsız bir konuma gitme riskine karşı bir
+    # çıkış yolu sağlıyor.
+    from context_automator.config import settings
+    if settings.db_path_override is not None:
+        return settings.db_path_override
     return Path(__file__).resolve().parents[3] / "data" / "contexts.db"

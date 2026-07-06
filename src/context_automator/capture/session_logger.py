@@ -27,6 +27,7 @@ import httpx
 from dotenv import load_dotenv
 
 from context_automator.util import logger
+from context_automator.config import settings
 
 load_dotenv()
 
@@ -145,7 +146,7 @@ def generate_session_summary_via_api(session_data: dict) -> str | None:
     Sadece sampling mevcut olmadığında (ör. CLI'den çalıştırılırken, MCP
     session'ı yokken) ya da client sampling desteklemediğinde kullanılır.
     """
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    api_key = settings.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         return None
 
