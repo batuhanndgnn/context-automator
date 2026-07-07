@@ -36,6 +36,17 @@ class Settings(BaseSettings):
     # --- AI özet fallback'i (BYOK) için --------------------------------
     anthropic_api_key: Optional[str] = Field(default=None, alias="ANTHROPIC_API_KEY")
 
+    # NOT: Önceden session_logger.py içinde `DEFAULT_MODEL = "claude-haiku-..."`
+    # olarak hardcoded'du. Anthropic bir modeli decommission ettiğinde (bkz.
+    # V2_BACKLOG / geçmişte başka bir projede yaşanan model-deprecation
+    # sorunu) bu satırın kod içinde arayıp bulunması gerekiyordu. Artık
+    # merkezi ayardan geliyor ve `.env`'de CONTEXT_AUTOMATOR_SUMMARY_MODEL
+    # ile override edilebiliyor -- kod değişikliği gerekmeden.
+    session_summary_model: str = Field(
+        default="claude-haiku-4-5-20251001",
+        alias="CONTEXT_AUTOMATOR_SUMMARY_MODEL",
+    )
+
     # --- IDE CLI override'ları (ide_paths.py'nin PATH/bilinen-yol
     #     aramasından önce kontrol ettiği manuel yollar) -----------------
     cursor_cli_override: Optional[str] = Field(

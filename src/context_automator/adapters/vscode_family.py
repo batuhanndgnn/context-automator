@@ -26,14 +26,10 @@ import os
 import re
 import shutil
 import sqlite3
-import platform
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import unquote
 
-_OS = platform.system()
-_IS_WINDOWS = _OS == "Windows"
-_IS_MAC = _OS == "Darwin"
 
 @dataclass
 class IDEConfig:
@@ -42,29 +38,14 @@ class IDEConfig:
 
 
 def get_ide_configs() -> dict[str, IDEConfig]:
-    configs = {}
-    
-    if _IS_WINDOWS:
-        appdata = os.environ.get("APPDATA")
-        if not appdata:
-            return {}
-        base = Path(appdata)
-        configs["cursor"] = IDEConfig("cursor", base / "Cursor" / "User" / "workspaceStorage")
-        configs["vscode"] = IDEConfig("vscode", base / "Code" / "User" / "workspaceStorage")
-        
-    elif _IS_MAC:
-        # macOS yolları
-        base = Path.home() / "Library" / "Application Support"
-        configs["cursor"] = IDEConfig("cursor", base / "Cursor" / "User" / "workspaceStorage")
-        configs["vscode"] = IDEConfig("vscode", base / "Code" / "User" / "workspaceStorage")
-        
-    else:
-        # Linux yolları (Genellikle ~/.config altında)
-        base = Path.home() / ".config"
-        configs["cursor"] = IDEConfig("cursor", base / "Cursor" / "User" / "workspaceStorage")
-        configs["vscode"] = IDEConfig("vscode", base / "Code" / "User" / "workspaceStorage")
-        
-    return configs
+    appdata = os.environ.get("APPDATA")
+    if not appdata:
+        return {}
+    base = Path(appdata)
+    return {
+        "cursor": IDEConfig("cursor", base / "Cursor" / "User" / "workspaceStorage"),
+        "vscode": IDEConfig("vscode", base / "Code" / "User" / "workspaceStorage"),
+    }
 
 
 @dataclass
@@ -84,35 +65,25 @@ class EditorState:
 
 def to_vscode_uri(path: Path) -> str:
     """Windows yolunu VS Code/Cursor'ın workspace.json'da kullandığı
-    file:///c%3A/... formatına çevirir. macOS/Linux için standart file:// döner."""
+    file:///c%3A/... formatına çevirir."""
     posix = path.resolve().as_posix()
-    
-    if _IS_WINDOWS:
-        m = re.match(r"^([a-zA-Z]):/(.*)$", posix)
-        if m:
-            drive, rest = m.groups()
-            return f"file:///{drive.lower()}%3A/{rest}"
-            
+    m = re.match(r"^([a-zA-Z]):/(.*)$", posix)
+    if m:
+        drive, rest = m.groups()
+        return f"file:///{drive.lower()}%3A/{rest}"
     return f"file://{posix}"
 
 
 def vscode_uri_to_path(uri: str) -> str | None:
-    """file:///c%3A/Users/... -> C:\\Users\\... (Windows)
-       file:///Users/... -> /Users/... (macOS/Linux)"""
+    """file:///c%3A/Users/... -> C:\\Users\\..."""
     if not uri.startswith("file://"):
         return None
     rest = unquote(uri[len("file://"):])
-    
-    if _IS_WINDOWS:
-        m = re.match(r"^/([a-zA-Z]):/(.*)$", rest)
-        if m:
-            drive, tail = m.groups()
-            return f"{drive.upper()}:\\{tail.replace('/', chr(92))}"
-        return rest.replace("/", "\\")
-    else:
-        # macOS ve Linux yolları genellikle file:///Users/... şeklinde başlar.
-        # unquote işleminden sonra /Users/... kalır ki bu doğrudan geçerli bir Posix yoludur.
-        return rest
+    m = re.match(r"^/([a-zA-Z]):/(.*)$", rest)
+    if m:
+        drive, tail = m.groups()
+        return f"{drive.upper()}:\\{tail.replace('/', chr(92))}"
+    return rest.replace("/", "\\")
 
 
 def find_workspace_storage_dir(ide: IDEConfig, working_dir: Path) -> Path | None:

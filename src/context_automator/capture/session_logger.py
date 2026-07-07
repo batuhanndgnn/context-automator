@@ -20,7 +20,6 @@ Ne sampling ne de API key mevcutsa sessizce atlanır, araç yine de çalışır.
 
 import json
 import os
-import subprocess
 from pathlib import Path
 
 import httpx
@@ -28,6 +27,7 @@ from dotenv import load_dotenv
 
 from context_automator.util import logger
 from context_automator.config import settings
+from context_automator.gitutil import run_git
 
 load_dotenv()
 
@@ -37,32 +37,34 @@ load_dotenv()
 # düşmüyordu, ayrı ve konfigüre edilmemiş bir logger'a gidiyordu. Artık
 # projenin kendi paylaşılan logger'ı (util.py) kullanılıyor.
 
-DEFAULT_MODEL = "claude-haiku-4-5-20251001"
-
-
-def _run(cmd: list[str], cwd: Path, timeout: int = 10) -> str:
-    try:
-        r = subprocess.run(cmd, cwd=cwd, capture_output=True,
-                           text=True, timeout=timeout)
-        return r.stdout.strip()
-    except Exception:  # noqa: BLE001
-        return ""
+# NOT: DEFAULT_MODEL artık burada hardcoded değil, config.py'deki
+# `settings.session_summary_model` üzerinden geliyor (bkz. config.py).
+# Model adı deprecate/decommission olursa tek satır değişiklik yeterli
+# olsun ve isteyen kullanıcı .env üzerinden override edebilsin diye.
 
 
 def gather_session_data(working_dir: Path) -> dict:
-    """Git'ten bu seanstaki değişiklikleri toplar."""
-    diff = _run(["git", "diff", "HEAD"], working_dir)
+    """Git'ten bu seanstaki değişiklikleri toplar.
+
+    NOT: Kendi subprocess _run()'ını yazmak yerine artık paylaşılan
+    gitutil.run_git() kullanılıyor -- önceden bu fonksiyon herhangi bir
+    hatada (timeout, git bulunamadı, vs.) sessizce "" dönüyordu, bu da
+    "gerçekten diff yok" ile "hata oluştu" durumlarını ayırt edilemez
+    kılıyordu. run_git().output aynı geriye-dönük-uyumlu string davranışını
+    korur ama artık hatalar loglanıyor (bkz. aşağıdaki logger.debug).
+    """
+    diff = run_git(["git", "diff", "HEAD"], working_dir).output
     if not diff:
-        diff = _run(["git", "diff"], working_dir)
+        diff = run_git(["git", "diff"], working_dir).output
 
-    log = _run(["git", "log", "--oneline", "-10",
-                "--pretty=format:%h %s (%ar)"], working_dir)
+    log = run_git(["git", "log", "--oneline", "-10",
+                   "--pretty=format:%h %s (%ar)"], working_dir).output
 
-    changed_files = _run(["git", "diff", "--name-only", "HEAD"], working_dir)
+    changed_files = run_git(["git", "diff", "--name-only", "HEAD"], working_dir).output
     if not changed_files:
-        changed_files = _run(["git", "diff", "--name-only"], working_dir)
+        changed_files = run_git(["git", "diff", "--name-only"], working_dir).output
 
-    status = _run(["git", "status", "--short"], working_dir)
+    status = run_git(["git", "status", "--short"], working_dir).output
 
     return {
         "working_dir": str(working_dir),
@@ -161,7 +163,7 @@ def generate_session_summary_via_api(session_data: dict) -> str | None:
                 "content-type": "application/json",
             },
             json={
-                "model": DEFAULT_MODEL,
+                "model": settings.session_summary_model,
                 "max_tokens": 300,
                 "messages": [{"role": "user", "content": prompt}],
             },

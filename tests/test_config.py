@@ -11,11 +11,20 @@ class TestSettings:
         monkeypatch.delenv("CONTEXT_AUTOMATOR_CURSOR_CLI", raising=False)
         monkeypatch.delenv("CONTEXT_AUTOMATOR_VSCODE_CLI", raising=False)
         monkeypatch.delenv("CONTEXT_AUTOMATOR_DB_PATH", raising=False)
+        monkeypatch.delenv("CONTEXT_AUTOMATOR_SUMMARY_MODEL", raising=False)
         s = Settings(_env_file=None)  # .env dosyasini da devre disi birak
         assert s.anthropic_api_key is None
         assert s.cursor_cli_override is None
         assert s.db_path_override is None
         assert s.log_level == "DEBUG"
+        # NOT: Onceden session_logger.py'de hardcoded'du -- artik burada,
+        # tek yerde tanimli ve override edilebilir olmali.
+        assert s.session_summary_model == "claude-haiku-4-5-20251001"
+
+    def test_session_summary_model_can_be_overridden(self, monkeypatch):
+        monkeypatch.setenv("CONTEXT_AUTOMATOR_SUMMARY_MODEL", "claude-sonnet-5")
+        s = Settings(_env_file=None)
+        assert s.session_summary_model == "claude-sonnet-5"
 
     def test_reads_anthropic_api_key_from_env(self, monkeypatch):
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-123")

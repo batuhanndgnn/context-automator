@@ -16,7 +16,6 @@ Başlatma:
 """
 import json
 import os
-import subprocess
 import time
 from pathlib import Path
 # NOT: `vision_processor` importu buradan kaldırıldı. Bu paketin bağımlılıkları
@@ -34,6 +33,7 @@ from mcp import types
 from context_automator.util import (
     build_snapshot, upsert_context, get_db, log_event, now_iso, logger
 )
+from context_automator.gitutil import run_git
 from context_automator.capture.git_state import capture_git_state
 from context_automator.capture.session_logger import (
     save_session_summary, build_welcome_message,
@@ -59,45 +59,11 @@ def _err(msg: str, code: str = "error") -> list[types.TextContent]:
                                                ensure_ascii=False))]
 
 
-_RUN_ERROR_SENTINEL = "\x00__CONTEXT_AUTOMATOR_RUN_ERROR__\x00"
-
-
-def _run(cmd: list[str], cwd: Path) -> str:
-    retries = 2  # Toplam 2 kez dene
-    for i in range(retries):
-        try:
-            if not cwd.exists():
-                return f"Dizin bulunamadı: {cwd}"
-            
-            # Subprocess çalıştır
-            r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL)
-            
-            if r.returncode == 0:
-                return r.stdout.strip()
-            else:
-                logger.warning(f"Git hatası ({' '.join(cmd)}): {r.stderr}")
-                return r.stderr
-                
-        except subprocess.TimeoutExpired:
-            logger.warning(f"Zaman aşımı (Deneme {i+1}): {' '.join(cmd)}")
-            time.sleep(1) # Git kilidinin açılması için 1 saniye bekle
-        except Exception as e:
-            logger.error(f"Beklenmedik hata: {str(e)}", exc_info=True)
-            # NOT: Önceden burada "" dönülüyordu. Bu tehlikeliydi, çünkü
-            # `resolve_git_state`'in "status" action'ı `dirty = bool(status.strip())`
-            # ile karar veriyor — boş string hem "gerçekten temiz" hem de
-            # "hata oluştu" anlamına gelebiliyordu ve ikisi ayırt edilemiyordu.
-            # Artık ayırt edilebilir bir sentinel dönüyoruz; çağıran taraf
-            # bunu görürse "temiz" değil "bilinmiyor/hata" olarak yorumlamalı.
-            return _RUN_ERROR_SENTINEL
-
-    # NOT: Önceden burada düz bir metin string'i dönülüyordu -- bu, yukarıdaki
-    # genel exception path'iyle aynı sınıf hataya düşüyordu: çağıran taraf
-    # bunu gerçek git çıktısından ayırt edemiyordu (ör. 'status' action'ı
-    # bunu 'değişen dosyalar' sanıp dirty=True derdi). Retry tükenmesi de bir
-    # hata durumudur, aynı sentinel'i dönüyoruz.
-    logger.error(f"Retry tükendi, komut başarısız: {' '.join(cmd)}")
-    return _RUN_ERROR_SENTINEL
+# NOT: Önceki `_run()` + `_RUN_ERROR_SENTINEL` deseni gitutil.run_git() ile
+# değiştirildi (bkz. gitutil.py docstring'i). Tüm başarı/başarısızlık kararı
+# artık returncode'a dayanıyor, İngilizce çıktı metnine değil -- bu locale
+# bağımsızlığı sağlıyor ve mcp_server/git_state/session_logger arasındaki
+# 3 kopya git-çalıştırma mantığını tek yere indiriyor.
 
 
 # ---------------------------------------------------------------------------
@@ -180,11 +146,11 @@ async def read_resource(uri: str) -> str:
 
     # context://current-git-status
     if uri == "context://current-git-status":
-        branch = _run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd)
-        status = _run(["git", "status", "--short"], cwd)
-        log    = _run(["git", "log", "--oneline", "-10",
-                       "--pretty=format:%h %s (%ar)"], cwd)
-        diff   = _run(["git", "diff", "HEAD"], cwd)
+        branch = run_git(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd).output
+        status = run_git(["git", "status", "--short"], cwd).output
+        log    = run_git(["git", "log", "--oneline", "-10",
+                          "--pretty=format:%h %s (%ar)"], cwd).output
+        diff   = run_git(["git", "diff", "HEAD"], cwd).output
 
         return "\n".join([
             f"Branch: {branch or '(bilinmiyor)'}",
@@ -588,21 +554,23 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
                 conn.close()
 
         if action == "status":
-            branch  = _run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd)
-            status  = _run(["git", "status", "--short"], cwd)
+            branch_res = run_git(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd)
+            status_res = run_git(["git", "status", "--short"], cwd)
 
-            if status == _RUN_ERROR_SENTINEL:
+            if not status_res.ok:
                 return _err(
                     "Git status okunurken beklenmedik bir hata oluştu — "
-                    "'temiz' olarak varsayılmadı, ayrıntı için app.log'a bak.",
+                    "'temiz' olarak varsayılmadı, ayrıntı için app.log'a bak. "
+                    f"({status_res.exc or status_res.stderr})",
                     "git_status_error",
                 )
 
+            status = status_res.stdout
             dirty = bool(status.strip())
             return _ok({
                 "status": "ok",
                 "working_dir": str(cwd),
-                "branch": branch,
+                "branch": branch_res.stdout,
                 "dirty": dirty,
                 "changed_files": status,
                 "suggestion": (
@@ -613,45 +581,48 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             })
 
         elif action == "stash":
-            out = _run(["git", "stash", "push", "-m",
-                        f"context-automator auto-stash {now_iso()}"], cwd)
-            if out == _RUN_ERROR_SENTINEL:
-                return _err("Git stash sırasında beklenmedik bir hata oluştu, "
-                            "ayrıntı için app.log'a bak.", "git_stash_error")
+            res = run_git(["git", "stash", "push", "-m",
+                           f"context-automator auto-stash {now_iso()}"], cwd)
+            if not res.ok:
+                return _err("Git stash sırasında bir hata oluştu: "
+                            f"{res.exc or res.stderr}", "git_stash_error")
             logger.info(f"Git stash uygulandı: {cwd}")
             return _ok({
                 "status": "ok",
                 "action": "stash",
-                "output": out,
+                "output": res.stdout,
                 "message": "Değişiklikler stash'e alındı. İstediğinde git stash pop ile geri alınır.",
             })
 
         elif action == "commit_wip":
             # Önce ekleyebiliyor muyuz kontrol edelim
-            add_out = _run(["git", "add", "-u"], cwd)
-            logger.info(f"Git add sonucu: {add_out}") # Neyi ekledik görelim
-            if add_out == _RUN_ERROR_SENTINEL:
-                return _err("Git add sırasında beklenmedik bir hata oluştu, "
-                            "ayrıntı için app.log'a bak.", "git_add_error")
+            add_res = run_git(["git", "add", "-u"], cwd)
+            logger.info(f"Git add sonucu: {add_res.stdout or add_res.stderr}")
+            if not add_res.ok:
+                return _err("Git add sırasında bir hata oluştu: "
+                            f"{add_res.exc or add_res.stderr}", "git_add_error")
 
             ts = now_iso()[:16].replace("T", " ")
             commit_msg = f"WIP: auto-save {ts}"
-            out = _run(["git", "commit", "-m", commit_msg], cwd)
+            commit_res = run_git(["git", "commit", "-m", commit_msg], cwd)
 
-            logger.info(f"Git commit sonucu: {out}")
+            logger.info(f"Git commit sonucu (rc={commit_res.returncode}): "
+                        f"{commit_res.stdout or commit_res.stderr}")
 
-            # NOT: Önceden `out` içeriğine hiç bakılmadan her zaman status="ok"
-            # dönülüyordu. git commit başarısız olabilir (user.name/email
-            # ayarlı değil, commit edilecek bir şey yok, vs.) ve bu durumda
-            # `_run()` stderr'i döndürür -- bunu artık gerçek bir başarı
-            # göstergesi olarak kontrol ediyoruz.
-            if out == _RUN_ERROR_SENTINEL:
+            # NOT: Önceden başarı/başarısızlık İngilizce çıktı metni
+            # üzerinden ("nothing to commit", "fatal:" gibi sabit string'ler)
+            # tespit ediliyordu -- kullanıcının git'i başka bir dilde
+            # kuruluysa (ör. Türkçe git.exe) bu kırılırdı. Artık SADECE
+            # returncode'a bakıyoruz (0 = başarılı), dil/locale'den tamamen
+            # bağımsız. "commit edilecek bir şey yok" durumunda da git zaten
+            # non-zero exit code döner, bu yüzden ek string kontrolüne gerek
+            # kalmadı.
+            if commit_res.exc or commit_res.timed_out:
                 return _err("Git commit sırasında beklenmedik bir hata oluştu, "
                             "ayrıntı için app.log'a bak.", "git_commit_error")
 
-            failure_markers = ("nothing to commit", "not a git repository",
-                               "please tell me who you are", "fatal:")
-            committed = not any(m in out.lower() for m in failure_markers)
+            committed = commit_res.ok
+            out = commit_res.stdout if committed else commit_res.stderr
 
             return _ok({
                 "status": "ok" if committed else "not_committed",
@@ -661,21 +632,21 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             })
 
         elif action == "discard":
-            out1 = _run(["git", "checkout", "--", "."], cwd)
-            if out1 == _RUN_ERROR_SENTINEL:
-                return _err("Git checkout sırasında beklenmedik bir hata oluştu "
-                            "— GERİ ALINAMAZ işlem güvenlik amacıyla durduruldu, "
-                            "ayrıntı için app.log'a bak.", "git_discard_error")
-            out2 = _run(["git", "clean", "-fd"], cwd)
-            if out2 == _RUN_ERROR_SENTINEL:
-                return _err("Git clean sırasında beklenmedik bir hata oluştu "
-                            "(checkout kısmı zaten uygulanmış olabilir!), "
-                            "ayrıntı için app.log'a bak.", "git_discard_error")
+            res1 = run_git(["git", "checkout", "--", "."], cwd)
+            if not res1.ok:
+                return _err("Git checkout sırasında bir hata oluştu "
+                            "— GERİ ALINAMAZ işlem güvenlik amacıyla durduruldu: "
+                            f"{res1.exc or res1.stderr}", "git_discard_error")
+            res2 = run_git(["git", "clean", "-fd"], cwd)
+            if not res2.ok:
+                return _err("Git clean sırasında bir hata oluştu "
+                            f"(checkout kısmı zaten uygulanmış olabilir!): "
+                            f"{res2.exc or res2.stderr}", "git_discard_error")
             logger.warning(f"Git discard uygulandı (GERİ ALINAMAZ): {cwd}")
             return _ok({
                 "status": "ok",
                 "action": "discard",
-                "output": f"{out1}\n{out2}".strip(),
+                "output": f"{res1.stdout}\n{res2.stdout}".strip(),
                 "warning": "Tüm kaydedilmemiş değişiklikler silindi. Bu işlem geri alınamaz.",
             })
 

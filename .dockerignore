@@ -1,0 +1,33 @@
+# ÖNEMLİ: Bu dosya olmadan Dockerfile'daki `COPY . /app` tüm dizini --
+# .git geçmişini, lokal .env'i (API key!), data/logs klasörlerini ve
+# geliştirme artıklarını -- imajın içine gömüyordu. Bu, imajı paylaşan/push
+# eden biri için gerçek bir sızıntı riski.
+
+.git/
+.github/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Hassas veriler
+.env
+data/
+logs/
+*.log
+
+# Geliştirme/test artıkları -- imaja gerek yok
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+*.bundle
+
+# IDE/OS
+.vscode/
+.cursor/
+.DS_Store
+Thumbs.db
