@@ -7,6 +7,7 @@ tarafında, cli.py'deki --wait-seconds) kullanılıyor - bu MVP için yeterli
 ama production-grade değil, bilerek böyle bırakıldı.
 """
 
+import os
 import subprocess
 from dataclasses import dataclass
 
@@ -36,16 +37,23 @@ def reopen_files(ide_type: str, cursor_positions: list[dict]) -> list[ReopenResu
         if not file_path:
             continue
         try:
-            _assert_safe_for_shell(str(cli_path), "IDE çalıştırılabilir yolu")
-            _assert_safe_for_shell(str(file_path), "file_path")
-
             # `-g path:line:column` aynı pencerede dosyayı belirtilen
             # konuma giderek açar (--new-window vermiyoruz, var olan
             # pencereyi kullanır).
-            r = subprocess.run(
-                f'"{cli_path}" -g "{file_path}:{line}:{col}"',
-                shell=True, capture_output=True, text=True, timeout=10,
-            )
+            if os.name == "nt":
+                _assert_safe_for_shell(str(cli_path), "IDE çalıştırılabilir yolu")
+                _assert_safe_for_shell(str(file_path), "file_path")
+                r = subprocess.run(
+                    f'"{cli_path}" -g "{file_path}:{line}:{col}"',
+                    shell=True, capture_output=True, text=True, timeout=10,
+                )
+            else:
+                # macOS/Linux: argv listesi, shell=False -- injection
+                # yüzeyi yok, blacklist'e gerek yok.
+                r = subprocess.run(
+                    [str(cli_path), "-g", f"{file_path}:{line}:{col}"],
+                    capture_output=True, text=True, timeout=10,
+                )
             # NOT: Önceden returncode hiç kontrol edilmiyordu -- komut gerçekten
             # başarısız olsa bile (yanlış path, IDE kapalı, cli bulunamadı vb.)
             # sonuç hep ok=True olarak raporlanıyordu, yani kullanıcıya

@@ -3,6 +3,7 @@ mevcut pencereye dokunmaz. Aggressive mode (mevcut pencereyi kapatma)
 bilerek v1 kapsamı dışı - bkz. V2_BACKLOG.md.
 """
 
+import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,15 +13,10 @@ from context_automator.ide_paths import resolve_ide_executable
 # cmd.exe için tehlikeli olan karakterler — bunlar tırnak içinde bile
 # cmd.exe tarafından özel işlenebiliyor (özellikle %). Windows dosya yolları
 # zaten " karakterini barındıramaz, ama savunma amaçlı burada da reddediyoruz.
-# NOT: Liste genişletildi -- önceki hali cmd.exe'nin gecikmeli değişken
-# genişletmede kullandığı `!`, alt-komut/gruplama için `(` `)`, komut
-# ayrımları için `;` ve `,`, ve backtick karakterlerini kapsamıyordu. Bu bir
-# blacklist olduğu için hiçbir zaman %100 tam olamaz -- asıl güvenli çözüm
-# shell=True'dan tamamen kaçınmaktır, ama .cmd/.bat çalıştırmak Windows'ta
-# Python subprocess ile shell=False iken doğrudan mümkün değil (bkz. Python
-# docs: .bat/.cmd için "shell must be True"). İleride cmd.exe'ye liste-tabanlı
-# argüman geçirme (ör. ["cmd", "/c", str(cli_path), ...]) daha güçlü bir
-# alternatif olarak değerlendirilmeli.
+# NOT: Bu blacklist SADECE Windows dalında (shell=True zorunlu olduğu için)
+# kullanılıyor. macOS/Linux'ta artık shell=True'ya hiç gerek yok (aşağıya
+# bkz.) -- argv listesiyle doğrudan çalıştırılıyor, dolayısıyla o platformlarda
+# shell metakarakteri diye bir risk kalmıyor.
 _SHELL_METACHARACTERS = set('"&|^<>%!(),;`\n\r')
 
 
@@ -52,26 +48,38 @@ def launch_ide_soft(ide_type: str, working_dir: Path) -> LaunchResult:
                 f"'{ide_type}' çalıştırılabilir dosyası bulunamadı. Denenenler: "
                 f"{', '.join(tried)}. Kurulum yolun farklıysa "
                 f"CONTEXT_AUTOMATOR_{ide_type.upper()}_CLI ortam değişkenine "
-                f"tam .cmd yolunu ata."
+                f"tam yolu ata."
             ),
         )
 
     try:
-        # shell=True: .cmd dosyaları Windows'ta subprocess.Popen ile
-        # shell olmadan doğrudan çalıştırılamayabiliyor (PATHEXT/ilişkilendirme
-        # subprocess'in doğrudan exec çağrısına dahil değil). Bu yüzden path'ler
-        # ham bir string'e gömülüyor — shell=True + f-string kombinasyonu
-        # potansiyel bir komut enjeksiyonu yüzeyi, o yüzden gömmeden önce
-        # doğruluyoruz.
-        _assert_safe_for_shell(str(cli_path), "IDE çalıştırılabilir yolu")
-        _assert_safe_for_shell(str(working_dir), "working_dir")
+        if os.name == "nt":
+            # shell=True: .cmd dosyaları Windows'ta subprocess.Popen ile
+            # shell olmadan doğrudan çalıştırılamayabiliyor (PATHEXT/ilişkilendirme
+            # subprocess'in doğrudan exec çağrısına dahil değil). Bu yüzden path'ler
+            # ham bir string'e gömülüyor — shell=True + f-string kombinasyonu
+            # potansiyel bir komut enjeksiyonu yüzeyi, o yüzden gömmeden önce
+            # doğruluyoruz.
+            _assert_safe_for_shell(str(cli_path), "IDE çalıştırılabilir yolu")
+            _assert_safe_for_shell(str(working_dir), "working_dir")
 
-        subprocess.Popen(
-            f'"{cli_path}" --new-window "{working_dir}"',
-            shell=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+            subprocess.Popen(
+                f'"{cli_path}" --new-window "{working_dir}"',
+                shell=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        else:
+            # macOS/Linux: gerçek yürütülebilir dosyalar (.cmd/.bat sarmalayıcı
+            # yok), argv listesi ile shell=False çalıştırılabiliyor. Bu hem
+            # daha basit hem de kategorik olarak daha güvenli -- shell
+            # metakarakteri diye bir kavram artık yok, işletim sistemi
+            # argümanları hiç yorumlamadan doğrudan execve() ile geçiriyor.
+            subprocess.Popen(
+                [str(cli_path), "--new-window", str(working_dir)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
         return LaunchResult(launched=True, cli_used=cli_path)
     except UnsafePathError as e:
         return LaunchResult(launched=False, error=str(e))

@@ -26,6 +26,7 @@ import os
 import re
 import shutil
 import sqlite3
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import unquote
@@ -38,10 +39,32 @@ class IDEConfig:
 
 
 def get_ide_configs() -> dict[str, IDEConfig]:
-    appdata = os.environ.get("APPDATA")
-    if not appdata:
-        return {}
-    base = Path(appdata)
+    """workspaceStorage köklerini işletim sistemine göre bulur.
+
+    ÖNCEDEN: sadece Windows'un APPDATA ortam değişkenine bakıyordu -- Mac ve
+    Linux'ta APPDATA hiç set edilmediği için fonksiyon boş dict dönüyor,
+    dolayısıyla açık dosya/imleç yakalama özelliği bu platformlarda tamamen
+    devre dışı kalıyordu (sessizce, hatasız ama yanlış).
+
+    ARTIK üç platform da destekleniyor:
+      - Windows : %APPDATA%\\Code|Cursor\\User\\workspaceStorage
+      - macOS   : ~/Library/Application Support/Code|Cursor/User/workspaceStorage
+      - Linux   : $XDG_CONFIG_HOME veya ~/.config altında Code|Cursor/User/workspaceStorage
+    """
+    home = Path.home()
+
+    if os.name == "nt":
+        appdata = os.environ.get("APPDATA")
+        if not appdata:
+            return {}
+        base = Path(appdata)
+    elif sys.platform == "darwin":
+        base = home / "Library" / "Application Support"
+    else:
+        # Linux ve diğer POSIX sistemler -- XDG Base Directory spesifikasyonu
+        xdg_config = os.environ.get("XDG_CONFIG_HOME")
+        base = Path(xdg_config) if xdg_config else home / ".config"
+
     return {
         "cursor": IDEConfig("cursor", base / "Cursor" / "User" / "workspaceStorage"),
         "vscode": IDEConfig("vscode", base / "Code" / "User" / "workspaceStorage"),
@@ -64,8 +87,13 @@ class EditorState:
 # ---------------------------------------------------------------------------
 
 def to_vscode_uri(path: Path) -> str:
-    """Windows yolunu VS Code/Cursor'ın workspace.json'da kullandığı
-    file:///c%3A/... formatına çevirir."""
+    """İşletim sistemine uygun VS Code/Cursor workspace.json URI'sine çevirir.
+
+    Windows'ta: file:///c%3A/... (küçük harf sürücü, %3A ile encode).
+    macOS/Linux'ta: file:///Users/... veya file:///home/... -- sürücü harfi
+    kavramı yok, düz POSIX yolu %-encode edilmeden (path zaten güvenli
+    karakterlerden oluştuğu varsayımıyla) kullanılır.
+    """
     posix = path.resolve().as_posix()
     m = re.match(r"^([a-zA-Z]):/(.*)$", posix)
     if m:
@@ -75,7 +103,9 @@ def to_vscode_uri(path: Path) -> str:
 
 
 def vscode_uri_to_path(uri: str) -> str | None:
-    """file:///c%3A/Users/... -> C:\\Users\\..."""
+    """file:///c%3A/Users/... -> C:\\Users\\...  (Windows)
+    file:///Users/bdogan/... -> /Users/bdogan/... (macOS/Linux, değişmeden)
+    """
     if not uri.startswith("file://"):
         return None
     rest = unquote(uri[len("file://"):])
@@ -83,7 +113,13 @@ def vscode_uri_to_path(uri: str) -> str | None:
     if m:
         drive, tail = m.groups()
         return f"{drive.upper()}:\\{tail.replace('/', chr(92))}"
-    return rest.replace("/", "\\")
+    # NOT: Önceden buradaki fallback -- drive-letter eşleşmezse -- yine de
+    # tüm '/' karakterlerini '\' ile değiştiriyordu. Bu Windows-varsayımı
+    # macOS/Linux POSIX yollarını (ör. /Users/bdogan/proje) bozuyordu
+    # (/Users\bdogan\proje gibi anlamsız bir string üretiyordu). Artık
+    # drive-letter yoksa yol olduğu gibi (forward slash'larla) döner --
+    # zaten POSIX'te doğru format bu.
+    return rest
 
 
 def find_workspace_storage_dir(ide: IDEConfig, working_dir: Path) -> Path | None:

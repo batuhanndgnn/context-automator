@@ -31,7 +31,7 @@ Gün içinde birden fazla proje arasında geçiş yapmak zorunda olan bir mühen
   - **BYOK fallback (Faz 7):** Client sampling desteklemiyorsa (veya CLI'den, MCP session olmadan çalıştırılıyorsa) ve `ANTHROPIC_API_KEY` tanımlıysa doğrudan Anthropic API'ye gidilir.
   - *(Kontrol tamamen sizde — arka planda izinsiz tarama yapılmaz, her iki yol da yalnızca `save_context` çağrıldığında tetiklenir.)*
 -  **Agnostik IDE Desteği:** Hem VS Code hem de Cursor ekosistemleriyle tam entegre (Native support) çalışır. Dosyaları satır ve sütun konumlarına kadar hatasız yükler.
--  **Docker & İzolasyon (kısmi):** MCP sunucusunun kendisi (tools/resources, git durumu okuma) bağımsız bir Linux konteynerinde çalışabilir. **Önemli sınırlama:** proje Windows'a özel APPDATA/LOCALAPPDATA yollarına ve `.cmd` çalıştırılabilirlerine dayandığı için IDE otomasyonu (VS Code/Cursor açma, workspaceStorage okuma) konteyner içinde çalışmaz -- bu, ayrı bir Windows-native süreç gerektirir. Docker'ı sadece git-durumu/resource kısmını izole çalıştırmak için düşünün, tam özellik seti için değil.
+-  **Docker & İzolasyon (kısmi):** MCP sunucusunun kendisi (tools/resources, git durumu okuma) bağımsız bir Linux konteynerinde çalışabilir. **Önemli sınırlama:** IDE otomasyonu (VS Code/Cursor açma, workspaceStorage okuma), tanım gereği konteyner içinden değil host işletim sisteminde çalışan gerçek bir IDE'ye ihtiyaç duyar — bu yüzden konteyner sadece git-durumu/resource kısmını izole çalıştırmak için düşünülmeli, tam özellik seti için değil. *(Not: proje artık Windows'a özel değil — `ide_paths.py`/`vscode_family.py`/`ide_launcher.py` Windows, macOS ve Linux'u da destekliyor; CI matrisinde üçü de test ediliyor.)*
 -  **Tam Gizlilik:** Tüm meta veriler (SQLite db) makinenizde lokal kalır, bulut senkronizasyonu yoktur. Sadece açık komut verdiğinizde özet için dışarı veri gider (sampling ile bile bu, sizin MCP client'ınızın kendi çıkış kanalıdır).
 
 ---
@@ -147,7 +147,7 @@ docker run --rm -i \
 
 ### Claude Desktop Entegrasyonu
 
-Claude uygulamasının bu MCP sunucusunu tanıyabilmesi için konfigürasyon dosyanızı (Windows: `%APPDATA%\Claude\claude_desktop_config.json`) güncelleyin:
+Claude uygulamasının bu MCP sunucusunu tanıyabilmesi için konfigürasyon dosyanızı (Windows: `%APPDATA%\Claude\claude_desktop_config.json`, macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`, Linux: `~/.config/Claude/claude_desktop_config.json`) güncelleyin:
 
 ```json
 {

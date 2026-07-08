@@ -7,6 +7,7 @@ burada sessizce "aktif dosyalar" listesinin boş dönmesine yol açar --
 hatasız ama yanlış davranan bir bug, testsiz yakalanması zor.
 """
 import json
+import sys
 
 import pytest
 
@@ -21,9 +22,18 @@ from context_automator.adapters.vscode_family import (
 
 
 class TestUriRoundTrip:
-    def test_to_vscode_uri_basic(self, tmp_path):
-        # Path.resolve() gerçek bir dizin gerektirmiyor ama var olan bir
-        # yolu vermek testin platform-bağımsız çalışmasını garanti eder.
+    # NOT: to_vscode_uri() Path.resolve() kullanıyor, bu da işletim
+    # sistemine göre WindowsPath ya da PosixPath üretir -- yani "drive
+    # letter" davranışı sadece gerçekten Windows'ta çalışırken test
+    # edilebilir, "posix" davranışı ise sadece macOS/Linux'ta. Önceden tek
+    # bir test her platformda Windows formatını (%3A) bekliyordu ve bu
+    # yüzden Linux/Mac CI'ında hep FAIL veriyordu -- kodun kendisi değil,
+    # testin platform varsayımı yanlıştı. Artık her davranış kendi
+    # platformunda test ediliyor, ikisi de gerçek CI matrisinde (windows-
+    # latest + ubuntu-latest + macos-latest) yeşil olmalı.
+
+    @pytest.mark.skipif(sys.platform != "win32", reason="Windows drive-letter URI formatı")
+    def test_to_vscode_uri_windows_drive_letter(self, tmp_path):
         p = tmp_path / "Projects" / "context-automator"
         uri = to_vscode_uri(p)
         assert uri.startswith("file:///")
@@ -32,21 +42,41 @@ class TestUriRoundTrip:
         assert "%3A" in uri
         assert ":" not in uri.split("%3A")[0][-1:]  # ':' çıplak değil
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX (Mac/Linux) URI formatı")
+    def test_to_vscode_uri_posix_path(self, tmp_path):
+        p = tmp_path / "Projects" / "context-automator"
+        uri = to_vscode_uri(p)
+        # macOS/Linux'ta sürücü harfi kavramı yok -- düz file:///<posix yol>
+        assert uri == f"file://{p.resolve().as_posix()}"
+        assert "%3A" not in uri
+
     def test_round_trip_preserves_path(self, tmp_path):
         p = tmp_path / "Users" / "bdogan" / "Projects" / "demo"
         uri = to_vscode_uri(p)
         back = vscode_uri_to_path(uri)
         assert back is not None
-        assert back.lower() == str(p).lower()
+        if sys.platform == "win32":
+            assert back.lower() == str(p).lower()
+        else:
+            assert back == str(p.resolve())
 
     def test_vscode_uri_to_path_rejects_non_file_uri(self):
         assert vscode_uri_to_path("https://example.com") is None
 
     def test_vscode_uri_to_path_handles_encoded_drive(self):
         # Gerçek VS Code çıktısına birebir örnek (docstring'teki spike verisi)
+        # -- string girdi ile çalıştığı için işletim sisteminden bağımsız.
         uri = "file:///c%3A/Users/bdogan/Projects/context-automator"
         path = vscode_uri_to_path(uri)
         assert path == "C:\\Users\\bdogan\\Projects\\context-automator"
+
+    def test_vscode_uri_to_path_handles_posix_path(self):
+        # macOS/Linux gerçek formatı: sürücü harfi yok, düz POSIX yolu.
+        uri = "file:///Users/bdogan/Projects/context-automator"
+        path = vscode_uri_to_path(uri)
+        # ÖNCEDEN: fallback tüm '/' karakterlerini '\' ile değiştiriyordu,
+        # bu da POSIX yollarını bozuyordu. Artık olduğu gibi kalmalı.
+        assert path == "/Users/bdogan/Projects/context-automator"
 
 
 class TestExtractLineCol:

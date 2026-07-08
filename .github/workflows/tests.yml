@@ -8,12 +8,18 @@ on:
 
 jobs:
   test:
-    runs-on: windows-latest
-    # NOT: runs-on windows-latest secildi cunku proje bilincli olarak
-    # Windows'a ozel (APPDATA/LOCALAPPDATA, .cmd executable'lar). Linux
-    # runner'da IDE-adapter testleri anlamli olmazdi.
+    runs-on: ${{ matrix.os }}
+    # NOT: Once sadece windows-latest vardi ("proje bilincli olarak Windows'a
+    # ozel" gerekcesiyle). Bu artik dogru degil -- ide_paths.py, vscode_family.py
+    # (get_ide_configs/to_vscode_uri/vscode_uri_to_path) ve ide_launcher.py/
+    # file_restorer.py artik macOS ve Linux'u da destekliyor (bkz. ilgili
+    # dosyalardaki NOT'lar). Bu yuzden matris ubuntu-latest ve macos-latest'i
+    # de icine aliyor; boylece platforma ozel bir regresyon sessizce
+    # Windows'ta yesil, digerlerinde kirik kalamiyor.
     strategy:
+      fail-fast: false
       matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
         python-version: ["3.11", "3.12"]
 
     steps:
